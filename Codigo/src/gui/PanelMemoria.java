@@ -469,6 +469,11 @@ public class PanelMemoria extends JPanel {
             case 27: return "ArchivoAbierto[4]";
             case 28: return "SiguienteBCP";
             case 29: return "Direccion";
+            case 30: return "TiempoLlegada";
+            case 31: return "Rafaga";
+            case 32: return "TiempoRestante";
+            case 33: return "Turnaround";
+            case 34: return "Tr/Ts";
             default: return "Campo" + offset;
         }
     }

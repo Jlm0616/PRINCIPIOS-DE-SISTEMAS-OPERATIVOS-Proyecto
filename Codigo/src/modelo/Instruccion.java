@@ -149,41 +149,7 @@ public class Instruccion {
 
     // Devuelve el peso (en ciclos) de la instrucción según su opcode.
     public int getPeso() {
-        switch (opcode) {
-            case "LOAD":  return 2;
-            case "STORE": return 2;
-            case "MOV":   return 1;
-            case "ADD":   return 3;
-            case "SUB":   return 3;
-            case "INC":   return 1;
-            case "DEC":   return 1;
-            case "SWAP":  return 1;
-            case "JMP":   return 2;
-            case "CMP":   return 2;
-            case "JE":    return 2;
-            case "JNE":   return 2;
-            case "PARAM": return 3;
-            case "PUSH":  return 1;
-            case "POP":   return 1;
-            case "INT":   return pesoDeINT();
-            default:
-                throw new UnsupportedOperationException(
-                    "Opcode sin peso definido: " + opcode);
-        }
-    }
-
-    // Calcula el peso de una instrucción INT según su código.
-    private int pesoDeINT() {
-        int codigo = getCodigoInterrupcion(0);
-        switch (codigo) {
-            case 0x20: return 2;
-            case 0x10: return 2;
-            case 0x09: return 3;
-            case 0x21: return 5;
-            default:
-                throw new UnsupportedOperationException(
-                    "INT sin peso definido: " + Integer.toHexString(codigo) + "H");
-        }
+        return 1;
     }
 
     @Override

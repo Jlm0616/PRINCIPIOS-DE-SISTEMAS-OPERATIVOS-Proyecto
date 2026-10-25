@@ -44,6 +44,11 @@ import java.util.Stack;
  *   27 = ArchivoAbierto[4] ← FIN ARCHIVOS
  *   28 = Siguiente BCP
  *   29 = Direccion
+ *   30 = TiempoLlegada     ← NUEVO (Proyecto 2)
+ *   31 = Rafaga            ← NUEVO (Proyecto 2)
+ *   32 = TiempoRestante    ← NUEVO (Proyecto 2)
+ *   33 = Turnaround        ← NUEVO (Proyecto 2)
+ *   34 = Tr/Ts             ← NUEVO (Proyecto 2)
  *
  * IMPORTANTE: DX es un String (no un int) porque el enunciado indica
  * que en INT 21H, DX guarda la cadena de texto del nombre del archivo.
@@ -58,7 +63,7 @@ public class BCP {
 
     public static final int TAMANO_MAXIMO_PILA = 5;
     public static final int TAMANO_MAXIMO_ARCHIVOS = 5;
-    public static final int POSICIONES_REQUERIDAS = 30;
+    public static final int POSICIONES_REQUERIDAS = 35;
 
     public static final int OFF_ID             = 0;
     public static final int OFF_ESTADO         = 1;
@@ -86,6 +91,13 @@ public class BCP {
 
     public static final int OFF_SIGUIENTE_BCP  = 28;
     public static final int OFF_DIRECCION      = 29;
+
+    // === NUEVOS OFFSETS (Proyecto 2) ===
+    public static final int OFF_TIEMPO_LLEGADA  = 30;
+    public static final int OFF_RAFAGA          = 31;
+    public static final int OFF_TIEMPO_RESTANTE = 32;
+    public static final int OFF_TURNAROUND      = 33;
+    public static final int OFF_TR_TS           = 34;
 
     private final Memoria memoria;
     private final int direccionBase;
@@ -131,6 +143,13 @@ public class BCP {
 
         setSiguienteBCP(-1);
         setDireccion(direccionBase);
+
+        // === NUEVOS CAMPOS (Proyecto 2) ===
+        setTiempoLlegada(0);
+        setRafaga(0);
+        setTiempoRestante(0);
+        setTurnaround(-1);
+        setTrTs(-1.0);
     }
 
     /**
@@ -156,7 +175,7 @@ public class BCP {
 
     /* ============ EXTRACCIÓN / RESTAURACIÓN ============ */
 
-    // Devuelve los 30 valores del BCP como arreglo.
+    // Devuelve los 35 valores del BCP como arreglo.
     public Object[] extraerValores() {
         Object[] valores = new Object[POSICIONES_REQUERIDAS];
         for (int i = 0; i < POSICIONES_REQUERIDAS; i++) {
@@ -165,7 +184,7 @@ public class BCP {
         return valores;
     }
 
-    // Escribe los 30 valores del arreglo en el BCP.
+    // Escribe los 35 valores del arreglo en el BCP.
     public void restaurarValores(Object[] valores) {
         if (valores == null || valores.length != POSICIONES_REQUERIDAS) {
             throw new IllegalArgumentException(
@@ -209,6 +228,14 @@ public class BCP {
 
         valores[OFF_SIGUIENTE_BCP]  = -1;
         valores[OFF_DIRECCION]      = -1;
+
+        // === NUEVOS CAMPOS (Proyecto 2) ===
+        valores[OFF_TIEMPO_LLEGADA]  = 0;
+        valores[OFF_RAFAGA]          = alcance;
+        valores[OFF_TIEMPO_RESTANTE] = alcance;
+        valores[OFF_TURNAROUND]      = -1;
+        valores[OFF_TR_TS]           = -1.0;
+
         return valores;
     }
 
@@ -475,6 +502,63 @@ public class BCP {
 
     public int getSiguienteBCP() { return (Integer) leer(OFF_SIGUIENTE_BCP); }
     public int getDireccion() { return (Integer) leer(OFF_DIRECCION); }
+
+    // === NUEVOS CAMPOS (Proyecto 2) ===
+
+    // Devuelve el tiempo de llegada del proceso (asignado por el usuario).
+    public int getTiempoLlegada() {
+        Object v = leer(OFF_TIEMPO_LLEGADA);
+        return (v != null) ? (Integer) v : 0;
+    }
+
+    // Asigna el tiempo de llegada del proceso.
+    public void setTiempoLlegada(int tiempoLlegada) {
+        escribir(OFF_TIEMPO_LLEGADA, tiempoLlegada);
+    }
+
+    // Devuelve la ráfaga del proceso (cantidad de instrucciones).
+    public int getRafaga() {
+        Object v = leer(OFF_RAFAGA);
+        return (v != null) ? (Integer) v : 0;
+    }
+
+    // Asigna la ráfaga del proceso.
+    public void setRafaga(int rafaga) {
+        escribir(OFF_RAFAGA, rafaga);
+    }
+
+    // Devuelve el tiempo restante (para SRT).
+    public int getTiempoRestante() {
+        Object v = leer(OFF_TIEMPO_RESTANTE);
+        return (v != null) ? (Integer) v : 0;
+    }
+
+    // Asigna el tiempo restante.
+    public void setTiempoRestante(int tiempoRestante) {
+        escribir(OFF_TIEMPO_RESTANTE, tiempoRestante);
+    }
+
+    // Devuelve el turnaround (tiempo final - tiempo de llegada).
+    public int getTurnaround() {
+        Object v = leer(OFF_TURNAROUND);
+        return (v != null) ? (Integer) v : -1;
+    }
+
+    // Asigna el turnaround.
+    public void setTurnaround(int turnaround) {
+        escribir(OFF_TURNAROUND, turnaround);
+    }
+
+    // Devuelve Tr/Ts (turnaround / service time).
+    public double getTrTs() {
+        Object v = leer(OFF_TR_TS);
+        return (v != null) ? (Double) v : -1.0;
+    }
+
+    // Asigna Tr/Ts.
+    public void setTrTs(double trTs) {
+        escribir(OFF_TR_TS, trTs);
+    }
 
     /* ============ SETTERS ============ */
 

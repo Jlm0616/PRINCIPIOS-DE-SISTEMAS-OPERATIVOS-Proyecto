@@ -399,6 +399,21 @@ public class GestorProcesos {
         bcp.marcarFin();
         bcp.setCpuAsignado(-1);
 
+        // === NUEVO (Proyecto 2): calcular turnaround y Tr/Ts ===
+        int tiempoLlegada = bcp.getTiempoLlegada();
+
+        // Duración en segundos del proceso
+        long duracionLong = bcp.getDuracionSegundos();
+        int duracionSegundos = (duracionLong >= 0) ? (int) duracionLong : 0;
+
+        // Turnaround = tiempo final - tiempo de llegada
+        int turnaround = duracionSegundos - tiempoLlegada;
+
+        // Tr/Ts = turnaround / service time (ráfaga)
+        double trTs = (bcp.getRafaga() > 0)
+            ? (double) turnaround / bcp.getRafaga()
+            : 0.0;
+
         BCPTerminado snapshot = new BCPTerminado(
             bcp.getId(),
             bcp.getEstado(),
@@ -406,7 +421,10 @@ public class GestorProcesos {
             bcp.getTiempoFin(),
             bcp.getBase(),
             bcp.getAlcance(),
-            bcp.getPrioridad()
+            bcp.getPrioridad(),
+            tiempoLlegada,   
+            turnaround,      
+            trTs
         );
 
         this.procesosTerminados.add(snapshot);
@@ -489,6 +507,10 @@ public class GestorProcesos {
         bcp.setAlcance(instrucciones.size());
         bcp.setPc(base);
         bcp.setEstado(EstadoProceso.READY);
+
+        // === inicializar ráfaga y tiempo restante ===
+        bcp.setRafaga(instrucciones.size());
+        bcp.setTiempoRestante(instrucciones.size());
 
         int pos = base;
         for (Instruccion instr : instrucciones) {
