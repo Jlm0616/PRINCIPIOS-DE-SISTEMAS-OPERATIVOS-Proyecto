@@ -5,30 +5,36 @@ import javax.swing.JPanel;
 import javax.swing.JButton;
 import javax.swing.JOptionPane;
 import javax.swing.JTabbedPane;
+import javax.swing.JLabel;
+import javax.swing.JComboBox;
+import javax.swing.JTextField;
+import javax.swing.BorderFactory;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
 
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Frame;
+import java.awt.GridBagLayout;
+import java.awt.GridBagConstraints;
+import java.awt.Insets;
 
 /**
  * Ventana modal de configuracion del sistema.
  *
- * Agrupa los paneles de configuracion en 2 pestañas:
+ * Agrupa los paneles de configuracion en 3 pestañas:
  *   - Memoria principal (PanelConfigMemoria)
- *   - Disco (PanelConfigDisco: tamaño, maxArchivos, swap)
- *
- * No crea objetos Memoria ni Disco: solo captura y valida los valores.
- * Quien la usa (VentanaPrincipal) es responsable de aplicarlos.
- *
- * IMPORTANTE: maxArchivos se pasa a PanelConfigMemoria porque el kernel
- * ahora reserva espacio para la ListaDeTrabajos (maxArchivos × 4).
+ *   - Disco (PanelConfigDisco)
+ *   - CPUs (Cantidad de procesadores)
  */
 public class VentanaConfiguracion extends JDialog {
 
     private PanelConfigMemoria panelMemoria;
     private PanelConfigDisco panelDisco;
+    private JPanel panelCPUs;
     private JTabbedPane tabs;
+
+    private JComboBox<Integer> comboCPUs;
 
     private boolean confirmado;
 
@@ -37,25 +43,16 @@ public class VentanaConfiguracion extends JDialog {
     private int tamanoDisco;
     private int maxArchivos;
     private int tamanoSwap;
+    private int cantidadCPUs;
 
-    /**
-     * Crea la ventana modal.
-     *
-     * @param propietario          ventana padre
-     * @param tamanoMemoriaActual  valor inicial de memoria
-     * @param limiteKernelActual   valor inicial del limite kernel
-     * @param tamanoDiscoActual    valor inicial del disco
-     * @param maxArchivosActual    valor inicial de maxArchivos
-     * @param tamanoSwapActual     valor inicial de la memoria virtual
-     * @param maxProcesosActual    cantidad de procesos configurada
-     */
     public VentanaConfiguracion(Frame propietario,
                                  int tamanoMemoriaActual,
                                  int limiteKernelActual,
                                  int tamanoDiscoActual,
                                  int maxArchivosActual,
                                  int tamanoSwapActual,
-                                 int maxProcesosActual) {
+                                 int maxProcesosActual,
+                                 int cpusActual) {
         super(propietario, "Configuracion", true);
         this.confirmado = false;
         this.tamanoMemoria = tamanoMemoriaActual;
@@ -63,23 +60,24 @@ public class VentanaConfiguracion extends JDialog {
         this.tamanoDisco = tamanoDiscoActual;
         this.maxArchivos = maxArchivosActual;
         this.tamanoSwap = tamanoSwapActual;
+        this.cantidadCPUs = cpusActual;
 
         construirInterfaz(tamanoMemoriaActual, limiteKernelActual,
                           tamanoDiscoActual, maxArchivosActual,
-                          tamanoSwapActual, maxProcesosActual);
+                          tamanoSwapActual, maxProcesosActual, cpusActual);
         pack();
         setResizable(false);
         setLocationRelativeTo(propietario);
     }
 
-    // Construye la interfaz: pestañas Memoria/Disco + botones Aceptar/Cancelar.
+    // Construye la interfaz: pestañas Memoria/Disco/CPUs + botones Aceptar/Cancelar.
     private void construirInterfaz(int tamanoMemoriaActual,
                                     int limiteKernelActual,
                                     int tamanoDiscoActual,
                                     int maxArchivosActual,
                                     int tamanoSwapActual,
-                                    int maxProcesosActual) {
-        // PanelConfigMemoria ahora recibe tambien maxArchivos
+                                    int maxProcesosActual,
+                                    int cpusActual) {
         panelMemoria = new PanelConfigMemoria(
                 tamanoMemoriaActual, limiteKernelActual,
                 maxProcesosActual, maxArchivosActual);
@@ -87,9 +85,12 @@ public class VentanaConfiguracion extends JDialog {
         panelDisco = new PanelConfigDisco(
                 tamanoDiscoActual, maxArchivosActual, tamanoSwapActual);
 
+        panelCPUs = crearPanelCPUs(cpusActual);
+
         tabs = new JTabbedPane();
         tabs.addTab("Memoria", panelMemoria);
         tabs.addTab("Disco", panelDisco);
+        tabs.addTab("CPUs", panelCPUs);
 
         JButton btnAceptar = new JButton("Aceptar");
         JButton btnCancelar = new JButton("Cancelar");
@@ -109,44 +110,66 @@ public class VentanaConfiguracion extends JDialog {
         add(panelBotones, BorderLayout.SOUTH);
     }
 
-    // Valida ambos paneles (con validación cruzada) y cierra si todo es correcto.
+    // Crea el panel para seleccionar la cantidad de CPUs
+    private JPanel crearPanelCPUs(int cpusActual) {
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBackground(Paleta.FONDO_PANEL);
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder(
+                        BorderFactory.createLineBorder(Paleta.VERDE_OSCURO, 2),
+                        "Procesadores (CPUs)",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        Paleta.FUENTE_TITULO_PANEL,
+                        Paleta.VERDE_OSCURO
+                ),
+                new EmptyBorder(15, 20, 15, 20)
+        ));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(6, 6, 6, 6);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        JLabel lblInfo = new JLabel("Cantidad de núcleos a simular (1 a 5)");
+        lblInfo.setFont(Paleta.FUENTE_LABEL_BOLD);
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        panel.add(lblInfo, gbc);
+
+        comboCPUs = new JComboBox<>(new Integer[]{1, 2, 3, 4, 5});
+        comboCPUs.setSelectedItem(cpusActual);
+        comboCPUs.setFont(Paleta.FUENTE_MONO);
+        gbc.gridx = 1;
+        panel.add(comboCPUs, gbc);
+
+        return panel;
+    }
+
+    // Valida ambos paneles y cierra si todo es correcto.
     private void validarYConfirmar() {
-        // Validar memoria (30% + minimo para 1 BCP + ListaDeTrabajos)
         if (!panelMemoria.validar()) {
             tabs.setSelectedComponent(panelMemoria);
             return;
         }
-        // Validar disco (maxArchivos y swap)
         if (!panelDisco.validar()) {
             tabs.setSelectedComponent(panelDisco);
             return;
         }
 
-        // === VALIDACION CRUZADA: kernel vs maxArchivos ===
         int limiteKernel = panelMemoria.getLimiteKernel();
         int maxArchivos = panelDisco.getMaxArchivos();
         int kernelMinimo = modelo.Memoria.getTamanoKernelMinimo(1, maxArchivos);
 
         if (limiteKernel < kernelMinimo) {
-            // Calcular maxArchivos maximo que cabe con este kernel
             int maxArchivosPosibles = modelo.Memoria.calcularMaxArchivosQueCaben(limiteKernel);
-
             JOptionPane.showMessageDialog(this,
                     "Configuracion invalida:\n\n"
-                    + "  Pestana 'Memoria': limite del kernel = " + limiteKernel + "\n"
-                    + "  Pestana 'Disco':   max_archivos      = " + maxArchivos + "\n\n"
-                    + "El kernel (" + limiteKernel + ") no alcanza para "
-                    + maxArchivos + " archivos + 1 proceso.\n"
+                    + "El kernel no alcanza para " + maxArchivos + " archivos + 1 proceso.\n"
                     + "Minimo requerido: " + kernelMinimo + " posiciones.\n\n"
-                    + "Opciones:\n"
-                    + "  1. Aumenta el limite del kernel (pestana 'Memoria')\n"
-                    + "  2. Reduce max_archivos a " + maxArchivosPosibles
-                    + " o menos (pestana 'Disco')\n\n"
-                    + "Se mantiene la configuracion anterior.",
+                    + "Reduce max_archivos a " + maxArchivosPosibles + " o menos.",
                     "Datos invalidos",
                     JOptionPane.ERROR_MESSAGE);
-
-            // Llevar al usuario a la pestana Disco (donde esta maxArchivos)
             tabs.setSelectedComponent(panelDisco);
             return;
         }
@@ -157,37 +180,37 @@ public class VentanaConfiguracion extends JDialog {
         tamanoDisco = panelDisco.getTamanoDisco();
         this.maxArchivos = maxArchivos;
         tamanoSwap = panelDisco.getTamanoSwap();
+        cantidadCPUs = (Integer) comboCPUs.getSelectedItem();
+        
         confirmado = true;
         dispose();
     }
 
-    // Indica si el usuario confirmó la configuración.
     public boolean isConfirmado() {
         return confirmado;
     }
 
-    // Devuelve el tamaño de memoria configurado.
     public int getTamanoMemoria() {
         return tamanoMemoria;
     }
 
-    // Devuelve el límite kernel/usuario configurado.
     public int getLimiteKernel() {
         return limiteKernel;
     }
 
-    // Devuelve el tamaño de disco configurado.
     public int getTamanoDisco() {
         return tamanoDisco;
     }
 
-    // Devuelve la cantidad máxima de archivos configurada.
     public int getMaxArchivos() {
         return maxArchivos;
     }
 
-    // Devuelve el tamaño del swap configurado.
     public int getTamanoSwap() {
         return tamanoSwap;
+    }
+
+    public int getCantidadCPUs() {
+        return cantidadCPUs;
     }
 }

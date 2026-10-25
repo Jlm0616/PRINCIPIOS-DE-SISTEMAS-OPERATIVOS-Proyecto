@@ -45,6 +45,26 @@ public class Paleta {
     public static final Color ESTADO_NEW = new Color(0x42, 0xA5, 0xF5);
     public static final Color ESTADO_SUSPENDIDO = new Color(0xAB, 0x47, 0xBC);
 
+    /* ==================== COLORES DE CPUS (Estilo Militar) ==================== */
+
+    public static final Color CPU_0 = new Color(0xC2, 0xB2, 0x80); // Caqui / Arena
+    public static final Color CPU_1 = new Color(0x8F, 0x9A, 0x7B); // Verde Oliva
+    public static final Color CPU_2 = new Color(0x9C, 0x7A, 0x5C); // Marrón tierra
+    public static final Color CPU_3 = new Color(0x6B, 0x7A, 0x5C); // Verde militar oscuro
+    public static final Color CPU_4 = new Color(0xB5, 0xA6, 0x8C); // Beige oscuro
+
+    // Devuelve el color según el ID del núcleo.
+    public static Color getColorCPU(int idNucleo) {
+        switch (idNucleo) {
+            case 0: return CPU_0;
+            case 1: return CPU_1;
+            case 2: return CPU_2;
+            case 3: return CPU_3;
+            case 4: return CPU_4;
+            default: return Color.LIGHT_GRAY;
+        }
+    }
+
     /* ==================== FUENTES ==================== */
 
     public static final Font FUENTE_TITULO = new Font("Segoe UI", Font.BOLD, 20);

@@ -16,7 +16,7 @@ import java.util.Properties;
  * (config.txt) con formato "clave=valor".
  *
  * Parametros CONFIGURABLES:
- *   - memoria, kernel, disco, max_archivos, memoria_virtual.
+ *   - memoria, kernel, disco, max_archivos, memoria_virtual, cpus.
  *
  * Parametros FIJOS:
  *   - max_procesos = 5.
@@ -31,6 +31,7 @@ public class ConfiguracionExterna {
     public static final int DISCO_DEFAULT = 512;
     public static final int MAX_ARCHIVOS_DEFAULT = 10;
     public static final int MEMORIA_VIRTUAL_DEFAULT = 64;
+    public static final int CPUS_DEFAULT = 1;
 
     public static final int MAX_PROCESOS = 5;
 
@@ -44,12 +45,16 @@ public class ConfiguracionExterna {
     public static final int MEMORIA_VIRTUAL_MINIMO = 16;
     public static final int MEMORIA_VIRTUAL_MAXIMO = 65536;
     public static final int ESPACIO_ARCHIVOS_MINIMO = 64;
+    
+    public static final int CPUS_MINIMO = 1;
+    public static final int CPUS_MAXIMO = 5;
 
     private int memoria         = MEMORIA_DEFAULT;
     private int kernel          = KERNEL_DEFAULT;
     private int disco           = DISCO_DEFAULT;
     private int maxArchivos     = MAX_ARCHIVOS_DEFAULT;
     private int memoriaVirtual  = MEMORIA_VIRTUAL_DEFAULT;
+    private int cpus            = CPUS_DEFAULT;
 
     private boolean huboCorrecciones = false;
     private final StringBuilder mensajesCorrecciones = new StringBuilder();
@@ -75,6 +80,7 @@ public class ConfiguracionExterna {
             disco          = parsear(props, "disco",          disco);
             maxArchivos    = parsear(props, "max_archivos",   maxArchivos);
             memoriaVirtual = parsear(props, "memoria_virtual", memoriaVirtual);
+            cpus           = parsear(props, "cpus",           cpus);
 
             validarYCorregir();
 
@@ -82,6 +88,7 @@ public class ConfiguracionExterna {
             System.out.println("[CONFIG]   Memoria: " + memoria + ", Kernel: " + kernel);
             System.out.println("[CONFIG]   Disco: " + disco
                     + ", MaxArchivos: " + maxArchivos + ", Swap: " + memoriaVirtual);
+            System.out.println("[CONFIG]   CPUs: " + cpus);
             System.out.println("[CONFIG]   MaxProcesos: " + MAX_PROCESOS
                     + " (FIJO, no configurable)");
 
@@ -169,6 +176,17 @@ public class ConfiguracionExterna {
             memoriaVirtual = MEMORIA_VIRTUAL_DEFAULT;
         }
 
+        // ==== CPUS ====
+        if (cpus < CPUS_MINIMO) {
+            agregarCorreccion("cpus=" + cpus
+                    + " invalido (minimo " + CPUS_MINIMO + "). Usando " + CPUS_DEFAULT + ".");
+            cpus = CPUS_DEFAULT;
+        } else if (cpus > CPUS_MAXIMO) {
+            agregarCorreccion("cpus=" + cpus
+                    + " invalido (maximo " + CPUS_MAXIMO + "). Usando " + CPUS_MAXIMO + ".");
+            cpus = CPUS_MAXIMO;
+        }
+
         // ==== VALIDACION CRUZADA: kernel vs maxArchivos ====
         int kernelMinimoParaUno = Memoria.getTamanoKernelMinimo(1, maxArchivos);
         if (kernel < kernelMinimoParaUno) {
@@ -240,9 +258,10 @@ public class ConfiguracionExterna {
         props.setProperty("disco",           String.valueOf(disco));
         props.setProperty("max_archivos",    String.valueOf(maxArchivos));
         props.setProperty("memoria_virtual", String.valueOf(memoriaVirtual));
+        props.setProperty("cpus",            String.valueOf(cpus));
 
         try (FileOutputStream out = new FileOutputStream(ARCHIVO)) {
-            props.store(out, "Configuracion del Sistema - Proyecto 1 SO");
+            props.store(out, "Configuracion del Sistema - Proyecto 2 SO");
             System.out.println("[CONFIG] Configuracion guardada en " + ARCHIVO);
         } catch (IOException e) {
             System.err.println("[CONFIG] Error guardando " + ARCHIVO
@@ -271,6 +290,7 @@ public class ConfiguracionExterna {
     public int getDisco()          { return disco; }
     public int getMaxArchivos()    { return maxArchivos; }
     public int getMemoriaVirtual() { return memoriaVirtual; }
+    public int getCpus()           { return cpus; }
     public int getMaxProcesos()    { return MAX_PROCESOS; }
 
     public boolean huboCorrecciones() { return huboCorrecciones; }
@@ -283,6 +303,7 @@ public class ConfiguracionExterna {
     public void setDisco(int v)          { this.disco = v; }
     public void setMaxArchivos(int v)    { this.maxArchivos = v; }
     public void setMemoriaVirtual(int v) { this.memoriaVirtual = v; }
+    public void setCpus(int v)           { this.cpus = v; }
 
     @Override
     public String toString() {
@@ -292,6 +313,7 @@ public class ConfiguracionExterna {
                 + ", disco=" + disco
                 + ", maxArchivos=" + maxArchivos
                 + ", memoriaVirtual=" + memoriaVirtual
+                + ", cpus=" + cpus
                 + ", maxProcesos=" + MAX_PROCESOS
                 + "}";
     }

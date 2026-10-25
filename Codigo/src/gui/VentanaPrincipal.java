@@ -7,8 +7,10 @@ import logica.ListaDeTrabajos;
 import logica.ParticionadorDinamico;
 import logica.ResultadoCarga;
 import logica.BCPTerminado;
+import logica.cpu.Nucleo;
 import modelo.BCP;
 import modelo.CPU;
+import modelo.EstadoProceso; // <-- IMPORTANTE: Agregado
 import modelo.Memoria;
 import modelo.Disco;
 
@@ -36,7 +38,9 @@ import java.awt.event.WindowEvent;
 import java.io.File;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 // Ventana principal de la aplicación: arma la UI y orquesta todo el sistema.
 public class VentanaPrincipal extends JFrame {
@@ -50,6 +54,7 @@ public class VentanaPrincipal extends JFrame {
     private int maxArchivosActual;
     private int tamanoSwapActual;
     private int limiteKernelActual;
+    private int cantidadCPUsActual;
 
     private Memoria memoria;
     private CPU cpu;
@@ -124,6 +129,7 @@ public class VentanaPrincipal extends JFrame {
         this.tamanoDiscoActual = config.getDisco();
         this.maxArchivosActual = config.getMaxArchivos();
         this.tamanoSwapActual = config.getMemoriaVirtual();
+        this.cantidadCPUsActual = config.getCpus();
     }
 
     // Aplica el LookAndFeel Nimbus si está disponible.
@@ -142,27 +148,24 @@ public class VentanaPrincipal extends JFrame {
 
     /**
      * Inicializa el sistema con la configuracion actual.
-     *
-     * Memoria ahora recibe 4 argumentos: tamanoMemoria, limiteKernel,
-     * maxProcesos, maxArchivos. La ListaProcesos ya NO vive en RAM.
-     * La ListaDeTrabajos SI vive en RAM.
      */
     private void inicializarSistema() {
         try {
             memoria = new Memoria(tamanoMemoriaActual, limiteKernelActual,
                                   maxProcesosActual, maxArchivosActual);
-            cpu = new CPU(limiteKernelActual);
+            cpu = new CPU(limiteKernelActual); // Ya no se usa directo en GestorProcesos, pero se mantiene
             disco = new Disco(tamanoDiscoActual, maxArchivosActual, tamanoSwapActual);
 
-            listaProcesos = new ListaProcesos();              // ← sin memoria
-            listaDeTrabajos = new ListaDeTrabajos(memoria);    // ← con memoria
+            listaProcesos = new ListaProcesos();
+            listaDeTrabajos = new ListaDeTrabajos(memoria);
 
             particionador = new ParticionadorDinamico(
                     memoria,
                     memoria.getLimiteKernelUsuario(),
                     memoria.getEspacioUsuarioDisponible());
 
-            gestor = new GestorProcesos(memoria, cpu,
+            // Se pasa la cantidad de CPUs al GestorProcesos
+            gestor = new GestorProcesos(memoria, cpu, cantidadCPUsActual,
                                         listaProcesos, listaDeTrabajos,
                                         particionador, disco);
         } catch (IllegalArgumentException e) {
@@ -373,12 +376,33 @@ public class VentanaPrincipal extends JFrame {
                     "No hay procesos para ejecutar.\nCarga un archivo .asm primero.");
             return;
         }
-        if (gestor.ejecutarUnPaso()) {
-            refrescarTodo();
-
-            if (!gestor.hayProcesosActivos()) {
-                imprimirEstadisticasEnPantalla();
+        
+        // Hacemos un paso del sistema
+        gestor.ejecutarUnPaso();
+        
+        // Si el proceso quedó bloqueado esperando disco, 
+        // hacemos pasos "fantasma" para consumir su tiempo de espera.
+        boolean hayBloqueados = true;
+        while (hayBloqueados) {
+            hayBloqueados = false;
+            for (Nucleo n : gestor.getGestorCPUs().getNucleos()) {
+                if (n.estaOcupado()) {
+                    BCP b = n.getBcpActual();
+                    if (b != null && b.getEstado() == EstadoProceso.BLOCKED) {
+                        hayBloqueados = true;
+                        break;
+                    }
+                }
             }
+            if (hayBloqueados) {
+                gestor.ejecutarUnPaso(); // Avanza 1 segundo el tiempo del disco
+            }
+        }
+
+        refrescarTodo();
+
+        if (!gestor.hayProcesosActivos()) {
+            imprimirEstadisticasEnPantalla();
         }
     }
 
@@ -463,6 +487,7 @@ public class VentanaPrincipal extends JFrame {
         int viejoMaxArchivos = this.maxArchivosActual;
         int viejoSwap = this.tamanoSwapActual;
         int viejoMaxProcesos = this.maxProcesosActual;
+        int viejoCPUs = this.cantidadCPUsActual;
 
         VentanaConfiguracion dialogo = new VentanaConfiguracion(
                 this,
@@ -471,7 +496,8 @@ public class VentanaPrincipal extends JFrame {
                 tamanoDiscoActual,
                 maxArchivosActual,
                 tamanoSwapActual,
-                maxProcesosActual);
+                maxProcesosActual,
+                cantidadCPUsActual);
 
         dialogo.setVisible(true);
 
@@ -482,6 +508,7 @@ public class VentanaPrincipal extends JFrame {
         int nuevoDisco  = dialogo.getTamanoDisco();
         int nuevoMaxArchivos = dialogo.getMaxArchivos();
         int nuevoSwap   = dialogo.getTamanoSwap();
+        int nuevoCPUs   = dialogo.getCantidadCPUs();
 
         // Aplicar temporalmente
         this.tamanoMemoriaActual = nuevoTamano;
@@ -489,6 +516,7 @@ public class VentanaPrincipal extends JFrame {
         this.tamanoDiscoActual = nuevoDisco;
         this.maxArchivosActual = nuevoMaxArchivos;
         this.tamanoSwapActual = nuevoSwap;
+        this.cantidadCPUsActual = nuevoCPUs;
 
         // Intentar inicializar (valida la config)
         try {
@@ -501,6 +529,7 @@ public class VentanaPrincipal extends JFrame {
             this.maxArchivosActual = viejoMaxArchivos;
             this.tamanoSwapActual = viejoSwap;
             this.maxProcesosActual = viejoMaxProcesos;
+            this.cantidadCPUsActual = viejoCPUs;
 
             // NO guardar en config.txt
             JOptionPane.showMessageDialog(this,
@@ -518,6 +547,7 @@ public class VentanaPrincipal extends JFrame {
         config.setDisco(nuevoDisco);
         config.setMaxArchivos(nuevoMaxArchivos);
         config.setMemoriaVirtual(nuevoSwap);
+        config.setCpus(nuevoCPUs);
         config.guardar();
 
         configurarCallbacks();
@@ -547,6 +577,7 @@ public class VentanaPrincipal extends JFrame {
         panelPantalla.agregarMensaje(">>   ListaDeTrabajos en RAM: "
                 + memoria.getTamanoListaTrabajos() + " posiciones ("
                 + maxArchivosActual + " entradas)");
+        panelPantalla.agregarMensaje(">>   CPUs: " + cantidadCPUsActual);
         panelPantalla.agregarMensaje(">>   Disco: " + tamanoDiscoActual
                 + " posiciones (maxArchivos=" + maxArchivosActual
                 + ", swap=" + tamanoSwapActual + ")");
@@ -612,18 +643,25 @@ public class VentanaPrincipal extends JFrame {
 
     // Refresca todos los paneles de la UI con el estado actual del sistema.
     private void refrescarTodo() {
-        BCP actual = gestor.getProcesoActual();
+        // 1. Armar el mapa de IRs por CPU
+        Map<Integer, Integer> irsPorCPU = new HashMap<>();
+        for (Nucleo nucleo : gestor.getGestorCPUs().getNucleos()) {
+            if (nucleo.estaOcupado()) {
+                BCP bcp = nucleo.getBcpActual();
+                if (bcp != null) {
+                    irsPorCPU.put(bcp.getIr(), nucleo.getIdNucleo());
+                }
+            }
+        }
 
+        // 2. Actualizar los paneles
         panelProcesos.actualizarLista(
                 gestor.getListaProcesos(),
-                actual,
+                gestor.getGestorCPUs().getNucleos(),
                 gestor.getProcesosBloqueadosInput(),
                 gestor.getListaDeTrabajos());
-        panelProcesos.actualizarBCP(actual);
 
-        int ir = (actual != null) ? actual.getIr() : -1;
-        panelMemoria.actualizar(memoria, ir);
-
+        panelMemoria.actualizar(memoria, irsPorCPU);
         panelDisco.actualizar(disco);
     }
 }

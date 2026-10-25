@@ -96,15 +96,15 @@ public class Despachador {
             return false;
         }
 
-        // Si el BCP esta BLOCKED, no ejecutar la siguiente instruccion
+        // Si el proceso está BLOCKED esperando E/S, NO ejecutamos instrucción,
+        // pero el proceso sigue en la CPU (el tiempo corre).
         if (ejecutorActual.getBcp().getEstado() == EstadoProceso.BLOCKED) {
-            return false;
+            return true; 
         }
 
         ejecutorActual.ejecutarSegundoDeCPU();
 
-        return !ejecutorActual.isProgramaTerminado()
-            && ejecutorActual.getBcp().getEstado() != EstadoProceso.BLOCKED;
+        return true; 
     }
 
     /**

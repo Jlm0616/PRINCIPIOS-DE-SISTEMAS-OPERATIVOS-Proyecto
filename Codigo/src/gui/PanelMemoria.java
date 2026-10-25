@@ -21,22 +21,13 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Panel que muestra el contenido de la memoria principal.
  *
- * Arriba: barra de progreso con el porcentaje de uso.
- * Centro: tabla con Pos | Zona | Valor. La fila del IR se resalta en amarillo.
- * Abajo: boton toggle "Mostrar solo ocupadas / Mostrar todas" + leyenda.
- *
- * La columna "Zona" indica a qué sección del kernel/usuario pertenece cada
- * posición (Stallings, seccion 3.3):
- *   - ListaTrab  → Lista de Trabajos (info de .asm que esperan entrar a RAM)
- *   - BCP        → Bloques de Control de Proceso
- *   - TablaMem   → Tabla de Memoria (bloques asignados)
- *   - Usuario    → Instrucciones de los procesos
- *   - Libre      → espacio del kernel no asignado a ninguna sub-zona
- *   - IR         → posicion actual del Instruction Register (amarillo)
+ * La fila del IR se resalta con el color de la CPU que lo está ejecutando.
  */
 public class PanelMemoria extends JPanel {
 
@@ -48,7 +39,10 @@ public class PanelMemoria extends JPanel {
     private boolean mostrarSoloOcupadas = false;
 
     private Memoria memoriaActual;
-    private int irActual = -1;
+    
+    // Mapa para guardar qué CPU tiene su IR en qué posición de memoria
+    // Clave: posición de memoria, Valor: ID de la CPU
+    private Map<Integer, Integer> irPorCPU = new HashMap<>();
 
     /* Colores suaves por zona */
     private static final Color COLOR_LISTA_TRABAJOS = new Color(0xE3, 0xF2, 0xFD);  // azul muy claro
@@ -56,7 +50,6 @@ public class PanelMemoria extends JPanel {
     private static final Color COLOR_TABLA_MEM      = new Color(0xF3, 0xE5, 0xF5);  // lila muy claro
     private static final Color COLOR_USUARIO        = Color.WHITE;
     private static final Color COLOR_LIBRE          = new Color(0xF0, 0xF0, 0xF0);  // gris muy claro
-    private static final Color COLOR_IR             = Paleta.AMARILLO_ADVERTENCIA;
 
     // Crea el panel y construye su interfaz gráfica.
     public PanelMemoria() {
@@ -135,8 +128,10 @@ public class PanelMemoria extends JPanel {
                 String zona = (zonaObj != null) ? zonaObj.toString() : "";
                 int pos = (posObj instanceof Integer) ? (Integer) posObj : -1;
 
-                if (pos == irActual) {
-                    c.setBackground(COLOR_IR);
+                // ¿Esta posición es el IR de alguna CPU?
+                if (irPorCPU.containsKey(pos)) {
+                    int idCPU = irPorCPU.get(pos);
+                    c.setBackground(Paleta.getColorCPU(idCPU));
                     c.setForeground(Color.BLACK);
                     setFont(Paleta.FUENTE_MONO_BOLD);
                     return c;
@@ -152,7 +147,7 @@ public class PanelMemoria extends JPanel {
         JScrollPane scroll = new JScrollPane(tabla);
         add(scroll, BorderLayout.CENTER);
 
-        // === Abajo: boton toggle + leyenda ===
+        // === Abajo: boton toggle ===
         btnToggle = new JButton("Mostrar solo ocupadas");
         btnToggle.setFont(Paleta.FUENTE_BOTON);
         btnToggle.setBackground(Paleta.VERDE_PRINCIPAL);
@@ -169,48 +164,7 @@ public class PanelMemoria extends JPanel {
         panelBoton.setOpaque(false);
         panelBoton.add(btnToggle);
 
-        JPanel panelSur = new JPanel(new BorderLayout());
-        panelSur.setOpaque(false);
-        panelSur.add(panelBoton, BorderLayout.WEST);
-        panelSur.add(crearLeyenda(), BorderLayout.EAST);
-        add(panelSur, BorderLayout.SOUTH);
-    }
-
-    /**
-     * Leyenda visual de las zonas.
-     */
-    private JPanel crearLeyenda() {
-        JPanel leyenda = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        leyenda.setOpaque(false);
-
-        leyenda.add(crearItemLeyenda("ListaTrab", COLOR_LISTA_TRABAJOS));
-        leyenda.add(crearItemLeyenda("BCP", COLOR_BCP));
-        leyenda.add(crearItemLeyenda("TablaMem", COLOR_TABLA_MEM));
-        leyenda.add(crearItemLeyenda("Usuario", COLOR_USUARIO));
-        leyenda.add(crearItemLeyenda("Libre", COLOR_LIBRE));
-        leyenda.add(crearItemLeyenda("IR", COLOR_IR));
-
-        return leyenda;
-    }
-
-    // Crea un ítem de leyenda (cuadro de color + texto).
-    private JPanel crearItemLeyenda(String texto, Color color) {
-        JPanel item = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
-        item.setOpaque(false);
-
-        JLabel cuadro = new JLabel("  ");
-        cuadro.setOpaque(true);
-        cuadro.setBackground(color);
-        cuadro.setBorder(BorderFactory.createLineBorder(Color.GRAY));
-        cuadro.setPreferredSize(new Dimension(14, 14));
-
-        JLabel label = new JLabel(texto);
-        label.setFont(Paleta.FUENTE_LABEL);
-        label.setForeground(Paleta.TEXTO_NORMAL);
-
-        item.add(cuadro);
-        item.add(label);
-        return item;
+        add(panelBoton, BorderLayout.SOUTH);
     }
 
     // Devuelve el color de fondo correspondiente a la zona.
@@ -226,10 +180,10 @@ public class PanelMemoria extends JPanel {
         }
     }
 
-    // Actualiza el panel con la memoria y el IR indicados.
-    public void actualizar(Memoria memoria, int ir) {
+    // Actualiza el panel con la memoria y los IRs de las CPUs.
+    public void actualizar(Memoria memoria, Map<Integer, Integer> irsPorCPU) {
         this.memoriaActual = memoria;
-        this.irActual = ir;
+        this.irPorCPU = irsPorCPU;
         refrescar();
         actualizarBarra();
     }
@@ -252,16 +206,6 @@ public class PanelMemoria extends JPanel {
             String zona = calcularZona(i);
             String valor = formatearContenido(i, contenido);
             modelo.addRow(new Object[]{i, zona, valor});
-        }
-
-        if (irActual >= 0) {
-            for (int i = 0; i < modelo.getRowCount(); i++) {
-                Object posObj = modelo.getValueAt(i, 0);
-                if (posObj instanceof Integer && ((Integer) posObj) == irActual) {
-                    tabla.scrollRectToVisible(tabla.getCellRect(i, 0, true));
-                    break;
-                }
-            }
         }
     }
 
@@ -316,14 +260,6 @@ public class PanelMemoria extends JPanel {
 
     /**
      * Formatea el contenido de una posición de memoria.
-     *
-     * Casos:
-     *   - null         → "(vacio)"
-     *   - Instruccion  → toString()
-     *   - ListaTrab    → "Trabajo N: <nombre> (inicio-fin, zona)"
-     *   - BCP          → "NombreCampo: valor"
-     *   - TablaMem     → "ID Proceso: X" / "Inicio: Y" / "Tamano: Z"
-     *   - Otro         → toString()
      */
     private String formatearContenido(int pos, Object contenido) {
         if (contenido == null) {
@@ -364,7 +300,6 @@ public class PanelMemoria extends JPanel {
 
     /**
      * Formatea una posición de la ListaDeTrabajos.
-     * Cada entrada ocupa 4 posiciones: [nombre, inicio, fin, zona].
      */
     private String formatearListaTrabajo(int pos, Object contenido) {
         int inicio = memoriaActual.getInicioListaTrabajos();
@@ -375,22 +310,16 @@ public class PanelMemoria extends JPanel {
         int posEnEntrada = offset % posicionesPorEntrada;
 
         switch (posEnEntrada) {
-            case 0:
-                return "Trabajo " + numEntrada + " -> " + contenido;
-            case 1:
-                return "  inicio: " + contenido;
-            case 2:
-                return "  fin: " + contenido;
-            case 3:
-                return "  zona: " + contenido;
-            default:
-                return contenido.toString();
+            case 0: return "Trabajo " + numEntrada + " -> " + contenido;
+            case 1: return "  inicio: " + contenido;
+            case 2: return "  fin: " + contenido;
+            case 3: return "  zona: " + contenido;
+            default: return contenido.toString();
         }
     }
 
     /**
      * Formatea una posición de la TablaMemoria.
-     * Cada bloque ocupa 3 posiciones: [idProceso, inicio, tamano].
      */
     private String formatearTablaMemoria(int pos, Object contenido) {
         int inicio = memoriaActual.getInicioTablaMemoria();
@@ -399,14 +328,10 @@ public class PanelMemoria extends JPanel {
         int posEnBloque = offset % 3;
 
         switch (posEnBloque) {
-            case 0:
-                return "ID Proceso: " + contenido;
-            case 1:
-                return "Inicio: " + contenido;
-            case 2:
-                return "Tamano: " + contenido;
-            default:
-                return contenido.toString();
+            case 0: return "ID Proceso: " + contenido;
+            case 1: return "Inicio: " + contenido;
+            case 2: return "Tamano: " + contenido;
+            default: return contenido.toString();
         }
     }
 
