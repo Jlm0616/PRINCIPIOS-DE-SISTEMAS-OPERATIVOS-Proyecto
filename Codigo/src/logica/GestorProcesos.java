@@ -31,6 +31,8 @@ import java.util.List;
  * IMPORTANTE: cuando un .asm entra a RAM, sus instrucciones se copian
  * a la zona de archivos del disco (como respaldo), pero NO se registra
  * en el indice ASM: el indice solo cataloga lo que está en swap.
+ *
+ * NOTA: en el Proyecto 2 ya no hay INT 09H (teclado).
  */
 public class GestorProcesos {
 
@@ -591,11 +593,6 @@ public class GestorProcesos {
     public void setSalidaPantalla(java.util.function.Consumer<String> callback) {
         this.salidaPantalla = callback;
         despachador.setSalidaPantalla(callback);
-    }
-
-    // Configura el callback de solicitud de teclado (propaga al despachador).
-    public void setSolicitudTeclado(java.util.function.Consumer<BCP> callback) {
-        despachador.setSolicitudTeclado(callback);
     }
 
     // Configura el callback de solicitud de archivo (propaga al despachador).

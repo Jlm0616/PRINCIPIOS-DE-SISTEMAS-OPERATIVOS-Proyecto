@@ -20,6 +20,7 @@ import java.util.Scanner;
  *   3. Al menos 1 instruccion.
  *   4. Sintaxis de cada linea (opcode, argumentos, registros, numeros).
  *   5. Debe contener al menos un 'INT 20H' para finalizar el programa.
+ *   6. INT 09H (teclado) ya no esta soportada (Proyecto 2).
  */
 public class Ensamblador {
 
@@ -232,6 +233,13 @@ public class Ensamblador {
                 throw new IllegalArgumentException(
                         "codigo de interrupcion invalido '" + codigo
                         + "', se esperaba formato como '20H'");
+            }
+
+            //INT 09H (lectura de teclado) ya no se usa
+            int codigoNum = Integer.parseInt(codigo.substring(0, 2), 16);
+            if (codigoNum == 0x09) {
+                throw new IllegalArgumentException(
+                        "INT 09H (lectura de teclado) ya no esta soportada en el Proyecto 2");
             }
             return;
         }

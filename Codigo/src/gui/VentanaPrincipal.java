@@ -78,7 +78,7 @@ public class VentanaPrincipal extends JFrame {
 
     // Crea la ventana principal, carga config y arma todo el sistema.
     public VentanaPrincipal() {
-        super("Proyecto 1 de SO");
+        super("Proyecto 2 de SO");
 
         config = new ConfiguracionExterna();
         config.cargar();
@@ -214,12 +214,6 @@ public class VentanaPrincipal extends JFrame {
     private void configurarCallbacks() {
         gestor.setSalidaPantalla(mensaje -> panelPantalla.agregarMensaje(mensaje));
 
-        gestor.setSolicitudTeclado(bcp -> {
-            panelPantalla.habilitarEntrada(true);
-            panelPantalla.agregarMensaje(">> Proceso " + bcp.getId()
-                    + " esperando input de teclado (0-255)...");
-        });
-
         gestor.setSolicitudArchivo(bcp -> {
             int ah = bcp.getAh();
             String operacion;
@@ -234,17 +228,6 @@ public class VentanaPrincipal extends JFrame {
             panelPantalla.agregarMensaje(">> [DISCO] Proceso " + bcp.getId()
                     + " -> " + operacion + " \"" + bcp.getDx() + "\"");
         });
-
-        panelPantalla.setOnEnviar(valor -> {
-            boolean desbloqueado = gestor.desbloquearProceso(valor);
-            if (desbloqueado) {
-                panelPantalla.agregarMensaje(">> Valor " + valor
-                        + " enviado al proceso desbloqueado (DX=" + valor + ")");
-                refrescarTodo();
-            } else {
-                panelPantalla.agregarMensaje(">> No hay procesos esperando input.");
-            }
-        });
     }
 
     // Crea el encabezado con el título y los botones de acción.
@@ -256,7 +239,7 @@ public class VentanaPrincipal extends JFrame {
         panelTitulo.setBackground(Paleta.FONDO_TITULO);
         panelTitulo.setBorder(new EmptyBorder(12, 20, 12, 20));
 
-        JLabel lblTitulo = new JLabel("Proyecto 1 de SO");
+        JLabel lblTitulo = new JLabel("Proyecto 2 de SO");
         lblTitulo.setFont(Paleta.FUENTE_TITULO);
         lblTitulo.setForeground(Paleta.TEXTO_CLARO);
         panelTitulo.add(lblTitulo, BorderLayout.WEST);

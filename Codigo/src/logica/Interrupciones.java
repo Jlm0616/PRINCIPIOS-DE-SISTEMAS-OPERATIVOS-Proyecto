@@ -11,6 +11,13 @@ import java.util.function.Consumer;
  * Segun Stallings (seccion 3.4, "Process Control"), las interrupciones
  * son supervisor calls: el programa en ejecucion pide un servicio al SO.
  *
+ * En el Proyecto 2:
+ *   - INT 20H: termina el programa.
+ *   - INT 10H: imprime en pantalla el valor de DX.
+ *   - INT 21H: manejo de archivos (crear, abrir, leer, escribir, eliminar).
+ *
+ * NOTA: INT 09H (lectura de teclado) YA NO SE USA en el Proyecto 2.
+ *
  * INT 21H: manejo de archivos.
  *   AH = operacion:
  *     3Ch -> crear
@@ -19,7 +26,6 @@ import java.util.function.Consumer;
  *     40h -> escribir
  *     41h -> eliminar
  *   DX = cadena de texto con el nombre del archivo (String).
- *        Ejemplo: MOV DX, "datos.txt"
  *   AL = resultado (0 exito, 1 error, o contenido leido).
  *
  * IMPORTANTE: todos los archivos creados por procesos (INT 21H) van al
@@ -34,7 +40,6 @@ public class Interrupciones {
     /* ==================== CALLBACKS ==================== */
 
     private Consumer<String> salidaPantalla;
-    private Consumer<BCP> solicitudTeclado;
     private Consumer<BCP> solicitudArchivo;
 
     /* ==================== CONSTRUCTOR ==================== */
@@ -51,7 +56,6 @@ public class Interrupciones {
         switch (codigo) {
             case 0x20: return ejecutarFinPrograma(bcp);
             case 0x10: return ejecutarImprimirPantalla(bcp);
-            case 0x09: return ejecutarLecturaTeclado(bcp);
             case 0x21: return ejecutarManejoArchivos(bcp);
             default:
                 throw new UnsupportedOperationException(
@@ -76,14 +80,6 @@ public class Interrupciones {
             salidaPantalla.accept(mensaje);
         }
         return ResultadoInterrupcion.RUNNING;
-    }
-
-    // INT 09H: solicita lectura de teclado y bloquea el proceso.
-    private ResultadoInterrupcion ejecutarLecturaTeclado(BCP bcp) {
-        if (solicitudTeclado != null) {
-            solicitudTeclado.accept(bcp);
-        }
-        return ResultadoInterrupcion.BLOQUEADO;
     }
 
     /**
@@ -133,7 +129,14 @@ public class Interrupciones {
             case 0x4D: {  // leer archivo
                 String contenido = leerArchivoDeDisco(nombre);
                 if (contenido != null && !contenido.isEmpty()) {
-                    bcp.setAl(contenido.charAt(0));
+                    // Parsear el contenido como número (no como carácter ASCII)
+                    try {
+                        int valor = Integer.parseInt(contenido.trim());
+                        bcp.setAl(valor & 0xFF);   // limitar a 8 bits
+                    } catch (NumberFormatException e) {
+                        // Si no es número, usar el primer carácter como número (0-255)
+                        bcp.setAl(contenido.charAt(0) & 0xFF);
+                    }
                 } else {
                     bcp.setAl(0);
                 }
@@ -143,7 +146,8 @@ public class Interrupciones {
 
             case 0x40: {  // escribir archivo
                 int al = bcp.getAl();
-                String aEscribir = String.valueOf((char) al);
+                // Escribir el número como texto (no como carácter ASCII)
+                String aEscribir = String.valueOf(al);
                 boolean escrito = escribirArchivoEnDisco(nombre, aEscribir);
                 bcp.setAl(escrito ? 0 : 1);
                 enviarMensaje("[DISCO] escribir(\"" + nombre + "\", \"" + aEscribir + "\")");
@@ -193,10 +197,11 @@ public class Interrupciones {
     private boolean crearArchivoEnDisco(String nombre) {
         if (existeArchivoProceso(nombre)) return false;
 
+        // Un archivo de INT 21H ocupa 1 sola posición (el valor de AL)
         int inicio = disco.reservarBloqueArchivo(1);
         if (inicio == -1) return false;
 
-        disco.escribir(inicio, "");
+        disco.escribir(inicio, 0);   // valor inicial = 0
 
         return disco.registrarArchivoProceso(nombre, inicio, inicio, Disco.ZONA_PRINCIPAL);
     }
@@ -209,12 +214,11 @@ public class Interrupciones {
         int fin = disco.getFinArchivo(nombre, Disco.TIPO_PROCESO);
         if (inicio == -1 || fin == -1) return null;
 
-        StringBuilder sb = new StringBuilder();
-        for (int i = inicio; i <= fin; i++) {
-            Object v = disco.leer(i);
-            if (v != null) sb.append(v.toString());
-        }
-        return sb.toString();
+        // Leer SOLO el primer valor (el archivo tiene 1 sola posición)
+        Object v = disco.leer(inicio);
+        if (v == null) return null;
+
+        return v.toString();
     }
 
     // Escribe el contenido en el archivo del disco, reubicándolo si crece.
@@ -226,28 +230,42 @@ public class Interrupciones {
         int finViejo = disco.getFinArchivo(nombre, Disco.TIPO_PROCESO);
         int tamanoViejo = (finViejo - inicioViejo) + 1;
 
-        if (contenido.length() <= tamanoViejo) {
-            for (int i = 0; i < contenido.length(); i++) {
-                disco.escribir(inicioViejo + i, String.valueOf(contenido.charAt(i)));
-            }
-            for (int i = contenido.length(); i < tamanoViejo; i++) {
+        // El contenido debe ser UN SOLO VALOR (un int)
+        int valor;
+        try {
+            valor = Integer.parseInt(contenido.trim());
+        } catch (NumberFormatException e) {
+            // Si no es número, no se puede guardar en AL
+            return false;
+        }
+
+        // Validar rango de AL (0-255)
+        if (valor < 0 || valor > 255) {
+            return false;
+        }
+
+        // Si ya hay espacio (1 posición), reescribir
+        if (tamanoViejo >= 1) {
+            disco.escribir(inicioViejo, valor);
+            // Limpiar posiciones sobrantes si el archivo era más grande
+            for (int i = 1; i < tamanoViejo; i++) {
                 disco.escribir(inicioViejo + i, null);
             }
             return true;
         }
 
-        int nuevoInicio = disco.reservarBloqueArchivo(contenido.length());
+        // Si no hay espacio, reservar 1 posición
+        int nuevoInicio = disco.reservarBloqueArchivo(1);
         if (nuevoInicio == -1) return false;
 
-        for (int i = 0; i < contenido.length(); i++) {
-            disco.escribir(nuevoInicio + i, String.valueOf(contenido.charAt(i)));
-        }
+        disco.escribir(nuevoInicio, valor);
 
+        // Liberar bloque viejo
         disco.liberarBloqueArchivo(inicioViejo, tamanoViejo);
 
         disco.eliminarDelIndice(nombre, Disco.TIPO_PROCESO);
         return disco.registrarArchivoProceso(
-                nombre, nuevoInicio, nuevoInicio + contenido.length() - 1,
+                nombre, nuevoInicio, nuevoInicio,   // ← solo 1 posición
                 Disco.ZONA_PRINCIPAL);
     }
 
@@ -272,11 +290,6 @@ public class Interrupciones {
     // Configura el callback de salida a pantalla.
     public void setSalidaPantalla(Consumer<String> callback) {
         this.salidaPantalla = callback;
-    }
-
-    // Configura el callback de solicitud de teclado.
-    public void setSolicitudTeclado(Consumer<BCP> callback) {
-        this.solicitudTeclado = callback;
     }
 
     // Configura el callback de solicitud de archivo.

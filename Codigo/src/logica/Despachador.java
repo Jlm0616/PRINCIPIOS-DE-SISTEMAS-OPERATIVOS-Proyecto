@@ -38,7 +38,6 @@ public class Despachador {
 
     /* Callbacks de interrupciones */
     private Consumer<String> salidaPantalla;
-    private Consumer<BCP> solicitudTeclado;
     private Consumer<BCP> solicitudArchivo;
 
     // Crea el despachador con la CPU y memoria indicadas.
@@ -79,7 +78,6 @@ public class Despachador {
 
         // Propagar callbacks de interrupciones
         ejecutorActual.setSalidaPantalla(salidaPantalla);
-        ejecutorActual.setSolicitudTeclado(solicitudTeclado);
         ejecutorActual.setSolicitudArchivo(solicitudArchivo);
     }
 
@@ -158,11 +156,6 @@ public class Despachador {
     // Configura el callback de salida a pantalla.
     public void setSalidaPantalla(Consumer<String> callback) {
         this.salidaPantalla = callback;
-    }
-
-    // Configura el callback de solicitud de teclado.
-    public void setSolicitudTeclado(Consumer<BCP> callback) {
-        this.solicitudTeclado = callback;
     }
 
     // Configura el callback de solicitud de archivo.

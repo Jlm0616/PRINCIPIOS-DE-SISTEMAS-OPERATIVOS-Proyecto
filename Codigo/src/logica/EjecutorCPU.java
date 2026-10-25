@@ -8,7 +8,7 @@ import modelo.Memoria;
 import modelo.Disco;
 
 /**
- * Ejecutor del ciclo de instrucción (fetch-decode-execute) para el Proyecto 1.
+ * Ejecutor del ciclo de instrucción (fetch-decode-execute) para el Proyecto 2.
  *
  * VALIDACIONES DE PC:
  *   - Si el PC apunta fuera del alcance del proceso, termina con EXIT y error.
@@ -18,6 +18,8 @@ import modelo.Disco;
  * Los mensajes de fin y error se envian a:
  *   - Consola (System.out.println) para debugging.
  *   - PanelPantalla (via callback salidaPantalla) para el usuario.
+ *
+ * NOTA: en el Proyecto 2 ya no hay INT 09H (teclado).
  */
 public class EjecutorCPU {
 
@@ -364,11 +366,6 @@ public class EjecutorCPU {
     public void setSalidaPantalla(java.util.function.Consumer<String> callback) {
         this.salidaPantalla = callback;
         interrupciones.setSalidaPantalla(callback);
-    }
-
-    // Configura el callback de solicitud de teclado (propaga a Interrupciones).
-    public void setSolicitudTeclado(java.util.function.Consumer<BCP> callback) {
-        interrupciones.setSolicitudTeclado(callback);
     }
 
     // Configura el callback de solicitud de archivo (propaga a Interrupciones).
