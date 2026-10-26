@@ -2,6 +2,8 @@ package logica;
 
 import logica.cpu.GestorCPUs;
 import logica.cpu.Nucleo;
+import logica.planificacion.PlanificadorFCFS;
+import logica.planificacion.PlanificadorSPN;
 import modelo.BCP;
 import modelo.CPU;
 import modelo.EstadoProceso;
@@ -33,7 +35,7 @@ public class GestorProcesos {
     private ListaProcesos listaProcesos;
     private ListaDeTrabajos listaDeTrabajos;
     private Planificador planificador;
-    private GestorCPUs gestorCPUs; // <-- NUEVO: maneja los núcleos
+    private GestorCPUs gestorCPUs;
     private ParticionadorDinamico particionador;
     private Disco disco;
 
@@ -45,8 +47,9 @@ public class GestorProcesos {
 
     // Crea el gestor y sus colaboradores (planificador, gestorCPUs, etc.).
     public GestorProcesos(Memoria memoria,
-                          CPU cpu, // Ya no se usa directo, se mantiene por compatibilidad
+                          CPU cpu,
                           int cantidadCPUs,
+                          String algoritmoCPU,
                           ListaProcesos listaProcesos,
                           ListaDeTrabajos listaDeTrabajos,
                           ParticionadorDinamico particionador,
@@ -55,7 +58,14 @@ public class GestorProcesos {
         this.listaProcesos = listaProcesos;
         this.listaDeTrabajos = listaDeTrabajos;
         this.particionador = particionador;
+        
+        // Configurar el planificador según el algoritmo elegido
         this.planificador = new Planificador(listaProcesos);
+        if ("SPN".equals(algoritmoCPU)) {
+            this.planificador.setEstrategia(new PlanificadorSPN());
+        } else {
+            this.planificador.setEstrategia(new PlanificadorFCFS());
+        }
         
         // Inicializar gestor de CPUs
         this.gestorCPUs = new GestorCPUs(cantidadCPUs, memoria, memoria.getLimiteKernelUsuario(), disco);
@@ -391,6 +401,7 @@ public class GestorProcesos {
     }
 
     public GestorCPUs getGestorCPUs() { return gestorCPUs; }
+    public Planificador getPlanificador() { return planificador; } // <-- AGREGADO
     
     public ListaProcesos getListaProcesos() { return listaProcesos; }
     public ListaDeTrabajos getListaDeTrabajos() { return listaDeTrabajos; }

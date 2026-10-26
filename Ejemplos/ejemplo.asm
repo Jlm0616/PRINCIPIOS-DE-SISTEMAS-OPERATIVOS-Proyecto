@@ -1,18 +1,9 @@
 MOV AH, 3Ch
-MOV AL, 00h
-MOV DX, 0
+MOV DX, "prueba.txt"
 INT 21H
 
-MOV AH, 40h
-MOV AL, 48h
-MOV DX, 0
+MOV AH, 41h
+MOV DX, "prueba.txt"
 INT 21H
 
-MOV AH, 4Dh
-MOV AL, 00h
-MOV DX, 0
-INT 21H
-
-MOV DX, 0
-INT 10H
 INT 20H

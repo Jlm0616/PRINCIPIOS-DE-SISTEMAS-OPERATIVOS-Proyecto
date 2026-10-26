@@ -16,7 +16,7 @@ import java.util.Properties;
  * (config.txt) con formato "clave=valor".
  *
  * Parametros CONFIGURABLES:
- *   - memoria, kernel, disco, max_archivos, memoria_virtual, cpus.
+ *   - memoria, kernel, disco, max_archivos, memoria_virtual, cpus, algoritmo_cpu.
  *
  * Parametros FIJOS:
  *   - max_procesos = 5.
@@ -32,6 +32,7 @@ public class ConfiguracionExterna {
     public static final int MAX_ARCHIVOS_DEFAULT = 10;
     public static final int MEMORIA_VIRTUAL_DEFAULT = 64;
     public static final int CPUS_DEFAULT = 1;
+    public static final String ALGORITMO_CPU_DEFAULT = "FCFS";
 
     public static final int MAX_PROCESOS = 5;
 
@@ -55,6 +56,7 @@ public class ConfiguracionExterna {
     private int maxArchivos     = MAX_ARCHIVOS_DEFAULT;
     private int memoriaVirtual  = MEMORIA_VIRTUAL_DEFAULT;
     private int cpus            = CPUS_DEFAULT;
+    private String algoritmoCPU = ALGORITMO_CPU_DEFAULT;
 
     private boolean huboCorrecciones = false;
     private final StringBuilder mensajesCorrecciones = new StringBuilder();
@@ -81,6 +83,9 @@ public class ConfiguracionExterna {
             maxArchivos    = parsear(props, "max_archivos",   maxArchivos);
             memoriaVirtual = parsear(props, "memoria_virtual", memoriaVirtual);
             cpus           = parsear(props, "cpus",           cpus);
+            
+            // Leer el algoritmo (si no está, usa FCFS)
+            algoritmoCPU = props.getProperty("algoritmo_cpu", ALGORITMO_CPU_DEFAULT).toUpperCase();
 
             validarYCorregir();
 
@@ -89,6 +94,7 @@ public class ConfiguracionExterna {
             System.out.println("[CONFIG]   Disco: " + disco
                     + ", MaxArchivos: " + maxArchivos + ", Swap: " + memoriaVirtual);
             System.out.println("[CONFIG]   CPUs: " + cpus);
+            System.out.println("[CONFIG]   Algoritmo CPU: " + algoritmoCPU);
             System.out.println("[CONFIG]   MaxProcesos: " + MAX_PROCESOS
                     + " (FIJO, no configurable)");
 
@@ -187,6 +193,13 @@ public class ConfiguracionExterna {
             cpus = CPUS_MAXIMO;
         }
 
+        // ==== ALGORITMO CPU ====
+        if (!algoritmoCPU.equals("FCFS") && !algoritmoCPU.equals("SPN")) {
+            agregarCorreccion("algoritmo_cpu=" + algoritmoCPU
+                    + " invalido. Usando " + ALGORITMO_CPU_DEFAULT + ".");
+            algoritmoCPU = ALGORITMO_CPU_DEFAULT;
+        }
+
         // ==== VALIDACION CRUZADA: kernel vs maxArchivos ====
         int kernelMinimoParaUno = Memoria.getTamanoKernelMinimo(1, maxArchivos);
         if (kernel < kernelMinimoParaUno) {
@@ -259,6 +272,7 @@ public class ConfiguracionExterna {
         props.setProperty("max_archivos",    String.valueOf(maxArchivos));
         props.setProperty("memoria_virtual", String.valueOf(memoriaVirtual));
         props.setProperty("cpus",            String.valueOf(cpus));
+        props.setProperty("algoritmo_cpu",   algoritmoCPU);
 
         try (FileOutputStream out = new FileOutputStream(ARCHIVO)) {
             props.store(out, "Configuracion del Sistema - Proyecto 2 SO");
@@ -291,6 +305,7 @@ public class ConfiguracionExterna {
     public int getMaxArchivos()    { return maxArchivos; }
     public int getMemoriaVirtual() { return memoriaVirtual; }
     public int getCpus()           { return cpus; }
+    public String getAlgoritmoCPU(){ return algoritmoCPU; }
     public int getMaxProcesos()    { return MAX_PROCESOS; }
 
     public boolean huboCorrecciones() { return huboCorrecciones; }
@@ -304,6 +319,7 @@ public class ConfiguracionExterna {
     public void setMaxArchivos(int v)    { this.maxArchivos = v; }
     public void setMemoriaVirtual(int v) { this.memoriaVirtual = v; }
     public void setCpus(int v)           { this.cpus = v; }
+    public void setAlgoritmoCPU(String v){ this.algoritmoCPU = v; }
 
     @Override
     public String toString() {
@@ -314,6 +330,7 @@ public class ConfiguracionExterna {
                 + ", maxArchivos=" + maxArchivos
                 + ", memoriaVirtual=" + memoriaVirtual
                 + ", cpus=" + cpus
+                + ", algoritmoCPU='" + algoritmoCPU + '\''
                 + ", maxProcesos=" + MAX_PROCESOS
                 + "}";
     }

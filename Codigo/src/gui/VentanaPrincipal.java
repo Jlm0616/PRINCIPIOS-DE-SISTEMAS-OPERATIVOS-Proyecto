@@ -10,7 +10,7 @@ import logica.BCPTerminado;
 import logica.cpu.Nucleo;
 import modelo.BCP;
 import modelo.CPU;
-import modelo.EstadoProceso; // <-- IMPORTANTE: Agregado
+import modelo.EstadoProceso;
 import modelo.Memoria;
 import modelo.Disco;
 
@@ -55,6 +55,7 @@ public class VentanaPrincipal extends JFrame {
     private int tamanoSwapActual;
     private int limiteKernelActual;
     private int cantidadCPUsActual;
+    private String algoritmoCPUActual;
 
     private Memoria memoria;
     private CPU cpu;
@@ -130,6 +131,7 @@ public class VentanaPrincipal extends JFrame {
         this.maxArchivosActual = config.getMaxArchivos();
         this.tamanoSwapActual = config.getMemoriaVirtual();
         this.cantidadCPUsActual = config.getCpus();
+        this.algoritmoCPUActual = config.getAlgoritmoCPU();
     }
 
     // Aplica el LookAndFeel Nimbus si está disponible.
@@ -164,8 +166,8 @@ public class VentanaPrincipal extends JFrame {
                     memoria.getLimiteKernelUsuario(),
                     memoria.getEspacioUsuarioDisponible());
 
-            // Se pasa la cantidad de CPUs al GestorProcesos
-            gestor = new GestorProcesos(memoria, cpu, cantidadCPUsActual,
+            // Se pasa la cantidad de CPUs y el algoritmo al GestorProcesos
+            gestor = new GestorProcesos(memoria, cpu, cantidadCPUsActual, algoritmoCPUActual,
                                         listaProcesos, listaDeTrabajos,
                                         particionador, disco);
         } catch (IllegalArgumentException e) {
@@ -488,6 +490,7 @@ public class VentanaPrincipal extends JFrame {
         int viejoSwap = this.tamanoSwapActual;
         int viejoMaxProcesos = this.maxProcesosActual;
         int viejoCPUs = this.cantidadCPUsActual;
+        String viejoAlgoritmo = this.algoritmoCPUActual;
 
         VentanaConfiguracion dialogo = new VentanaConfiguracion(
                 this,
@@ -497,7 +500,8 @@ public class VentanaPrincipal extends JFrame {
                 maxArchivosActual,
                 tamanoSwapActual,
                 maxProcesosActual,
-                cantidadCPUsActual);
+                cantidadCPUsActual,
+                algoritmoCPUActual);
 
         dialogo.setVisible(true);
 
@@ -509,6 +513,7 @@ public class VentanaPrincipal extends JFrame {
         int nuevoMaxArchivos = dialogo.getMaxArchivos();
         int nuevoSwap   = dialogo.getTamanoSwap();
         int nuevoCPUs   = dialogo.getCantidadCPUs();
+        String nuevoAlgoritmo = dialogo.getAlgoritmoCPU();
 
         // Aplicar temporalmente
         this.tamanoMemoriaActual = nuevoTamano;
@@ -517,6 +522,7 @@ public class VentanaPrincipal extends JFrame {
         this.maxArchivosActual = nuevoMaxArchivos;
         this.tamanoSwapActual = nuevoSwap;
         this.cantidadCPUsActual = nuevoCPUs;
+        this.algoritmoCPUActual = nuevoAlgoritmo;
 
         // Intentar inicializar (valida la config)
         try {
@@ -530,6 +536,7 @@ public class VentanaPrincipal extends JFrame {
             this.tamanoSwapActual = viejoSwap;
             this.maxProcesosActual = viejoMaxProcesos;
             this.cantidadCPUsActual = viejoCPUs;
+            this.algoritmoCPUActual = viejoAlgoritmo;
 
             // NO guardar en config.txt
             JOptionPane.showMessageDialog(this,
@@ -548,6 +555,7 @@ public class VentanaPrincipal extends JFrame {
         config.setMaxArchivos(nuevoMaxArchivos);
         config.setMemoriaVirtual(nuevoSwap);
         config.setCpus(nuevoCPUs);
+        config.setAlgoritmoCPU(nuevoAlgoritmo);
         config.guardar();
 
         configurarCallbacks();
@@ -577,7 +585,8 @@ public class VentanaPrincipal extends JFrame {
         panelPantalla.agregarMensaje(">>   ListaDeTrabajos en RAM: "
                 + memoria.getTamanoListaTrabajos() + " posiciones ("
                 + maxArchivosActual + " entradas)");
-        panelPantalla.agregarMensaje(">>   CPUs: " + cantidadCPUsActual);
+        panelPantalla.agregarMensaje(">>   CPUs: " + cantidadCPUsActual
+                + " | Algoritmo: " + algoritmoCPUActual);
         panelPantalla.agregarMensaje(">>   Disco: " + tamanoDiscoActual
                 + " posiciones (maxArchivos=" + maxArchivosActual
                 + ", swap=" + tamanoSwapActual + ")");

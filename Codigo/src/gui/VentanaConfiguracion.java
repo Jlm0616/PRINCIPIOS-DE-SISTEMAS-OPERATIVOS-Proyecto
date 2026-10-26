@@ -5,36 +5,18 @@ import javax.swing.JPanel;
 import javax.swing.JButton;
 import javax.swing.JOptionPane;
 import javax.swing.JTabbedPane;
-import javax.swing.JLabel;
-import javax.swing.JComboBox;
-import javax.swing.JTextField;
-import javax.swing.BorderFactory;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.TitledBorder;
 
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Frame;
-import java.awt.GridBagLayout;
-import java.awt.GridBagConstraints;
-import java.awt.Insets;
 
-/**
- * Ventana modal de configuracion del sistema.
- *
- * Agrupa los paneles de configuracion en 3 pestañas:
- *   - Memoria principal (PanelConfigMemoria)
- *   - Disco (PanelConfigDisco)
- *   - CPUs (Cantidad de procesadores)
- */
 public class VentanaConfiguracion extends JDialog {
 
     private PanelConfigMemoria panelMemoria;
     private PanelConfigDisco panelDisco;
-    private JPanel panelCPUs;
+    private PanelConfigCPU panelCPU; // <-- Usamos el nuevo panel
     private JTabbedPane tabs;
-
-    private JComboBox<Integer> comboCPUs;
 
     private boolean confirmado;
 
@@ -44,6 +26,7 @@ public class VentanaConfiguracion extends JDialog {
     private int maxArchivos;
     private int tamanoSwap;
     private int cantidadCPUs;
+    private String algoritmoCPU;
 
     public VentanaConfiguracion(Frame propietario,
                                  int tamanoMemoriaActual,
@@ -52,7 +35,8 @@ public class VentanaConfiguracion extends JDialog {
                                  int maxArchivosActual,
                                  int tamanoSwapActual,
                                  int maxProcesosActual,
-                                 int cpusActual) {
+                                 int cpusActual,
+                                 String algoritmoActual) {
         super(propietario, "Configuracion", true);
         this.confirmado = false;
         this.tamanoMemoria = tamanoMemoriaActual;
@@ -61,23 +45,24 @@ public class VentanaConfiguracion extends JDialog {
         this.maxArchivos = maxArchivosActual;
         this.tamanoSwap = tamanoSwapActual;
         this.cantidadCPUs = cpusActual;
+        this.algoritmoCPU = algoritmoActual;
 
         construirInterfaz(tamanoMemoriaActual, limiteKernelActual,
                           tamanoDiscoActual, maxArchivosActual,
-                          tamanoSwapActual, maxProcesosActual, cpusActual);
+                          tamanoSwapActual, maxProcesosActual, cpusActual, algoritmoActual);
         pack();
         setResizable(false);
         setLocationRelativeTo(propietario);
     }
 
-    // Construye la interfaz: pestañas Memoria/Disco/CPUs + botones Aceptar/Cancelar.
     private void construirInterfaz(int tamanoMemoriaActual,
                                     int limiteKernelActual,
                                     int tamanoDiscoActual,
                                     int maxArchivosActual,
                                     int tamanoSwapActual,
                                     int maxProcesosActual,
-                                    int cpusActual) {
+                                    int cpusActual,
+                                    String algoritmoActual) {
         panelMemoria = new PanelConfigMemoria(
                 tamanoMemoriaActual, limiteKernelActual,
                 maxProcesosActual, maxArchivosActual);
@@ -85,12 +70,12 @@ public class VentanaConfiguracion extends JDialog {
         panelDisco = new PanelConfigDisco(
                 tamanoDiscoActual, maxArchivosActual, tamanoSwapActual);
 
-        panelCPUs = crearPanelCPUs(cpusActual);
+        panelCPU = new PanelConfigCPU(cpusActual, algoritmoActual);
 
         tabs = new JTabbedPane();
         tabs.addTab("Memoria", panelMemoria);
         tabs.addTab("Disco", panelDisco);
-        tabs.addTab("CPUs", panelCPUs);
+        tabs.addTab("CPUs", panelCPU);
 
         JButton btnAceptar = new JButton("Aceptar");
         JButton btnCancelar = new JButton("Cancelar");
@@ -110,43 +95,6 @@ public class VentanaConfiguracion extends JDialog {
         add(panelBotones, BorderLayout.SOUTH);
     }
 
-    // Crea el panel para seleccionar la cantidad de CPUs
-    private JPanel crearPanelCPUs(int cpusActual) {
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBackground(Paleta.FONDO_PANEL);
-        panel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createLineBorder(Paleta.VERDE_OSCURO, 2),
-                        "Procesadores (CPUs)",
-                        TitledBorder.DEFAULT_JUSTIFICATION,
-                        TitledBorder.DEFAULT_POSITION,
-                        Paleta.FUENTE_TITULO_PANEL,
-                        Paleta.VERDE_OSCURO
-                ),
-                new EmptyBorder(15, 20, 15, 20)
-        ));
-
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(6, 6, 6, 6);
-        gbc.anchor = GridBagConstraints.WEST;
-
-        JLabel lblInfo = new JLabel("Cantidad de núcleos a simular (1 a 5)");
-        lblInfo.setFont(Paleta.FUENTE_LABEL_BOLD);
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        panel.add(lblInfo, gbc);
-
-        comboCPUs = new JComboBox<>(new Integer[]{1, 2, 3, 4, 5});
-        comboCPUs.setSelectedItem(cpusActual);
-        comboCPUs.setFont(Paleta.FUENTE_MONO);
-        gbc.gridx = 1;
-        panel.add(comboCPUs, gbc);
-
-        return panel;
-    }
-
-    // Valida ambos paneles y cierra si todo es correcto.
     private void validarYConfirmar() {
         if (!panelMemoria.validar()) {
             tabs.setSelectedComponent(panelMemoria);
@@ -180,7 +128,9 @@ public class VentanaConfiguracion extends JDialog {
         tamanoDisco = panelDisco.getTamanoDisco();
         this.maxArchivos = maxArchivos;
         tamanoSwap = panelDisco.getTamanoSwap();
-        cantidadCPUs = (Integer) comboCPUs.getSelectedItem();
+        
+        cantidadCPUs = panelCPU.getCantidadCPUs();
+        algoritmoCPU = panelCPU.getAlgoritmoCPU();
         
         confirmado = true;
         dispose();
@@ -212,5 +162,9 @@ public class VentanaConfiguracion extends JDialog {
 
     public int getCantidadCPUs() {
         return cantidadCPUs;
+    }
+
+    public String getAlgoritmoCPU() {
+        return algoritmoCPU;
     }
 }
