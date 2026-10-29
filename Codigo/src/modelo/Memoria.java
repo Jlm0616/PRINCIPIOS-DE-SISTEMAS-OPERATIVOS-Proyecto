@@ -44,8 +44,8 @@ public class Memoria {
 
     /* ==================== TAMANOS FIJOS ==================== */
 
-    /** Cantidad maxima de BCPs que pueden caber en el kernel. */
-    public static final int MAX_BCPS = 5;
+    /** Cantidad maxima de BCPs que pueden caber en el kernel (5 CPUs * 5). */
+    public static final int MAX_BCPS = 25; // <-- CAMBIADO: Antes era 5
 
     /** Tamano minimo de la memoria (configurable por el usuario). */
     public static final int TAMANO_MINIMO = 256;
@@ -87,7 +87,7 @@ public class Memoria {
      *
      * @param tamanoMemoria       cantidad total de posiciones (>= TAMANO_MINIMO)
      * @param limiteKernelUsuario primera posicion de la zona usuario
-     * @param maxProcesos         cantidad maxima deseada de procesos (tope 5)
+     * @param maxProcesos         cantidad maxima deseada de procesos (tope 25)
      * @param maxArchivos         cantidad maxima de archivos (para ListaDeTrabajos)
      * @throws IllegalArgumentException si la configuracion es invalida
      */

@@ -153,8 +153,11 @@ public class VentanaPrincipal extends JFrame {
      */
     private void inicializarSistema() {
         try {
+            // El limite de procesos ahora es 5 por cada CPU configurada
+            int maxProcesosReales = cantidadCPUsActual * 5;
+            
             memoria = new Memoria(tamanoMemoriaActual, limiteKernelActual,
-                                  maxProcesosActual, maxArchivosActual);
+                                  maxProcesosReales, maxArchivosActual);
             cpu = new CPU(limiteKernelActual);
             disco = new Disco(tamanoDiscoActual, maxArchivosActual, tamanoSwapActual);
 
@@ -579,13 +582,15 @@ public class VentanaPrincipal extends JFrame {
 
     // Muestra en pantalla un resumen de la configuración aplicada.
     private void mostrarMensajeConfiguracion() {
+        int procesosReales = cantidadCPUsActual * 5;
+
         panelPantalla.agregarMensaje(">> Configuracion aplicada:");
         panelPantalla.agregarMensaje(">>   Memoria: " + tamanoMemoriaActual + " posiciones");
         panelPantalla.agregarMensaje(">>   Kernel: 0-" + (limiteKernelActual - 1)
                 + ", Usuario: " + limiteKernelActual + "-" + (tamanoMemoriaActual - 1));
         panelPantalla.agregarMensaje(">>   BCPs disponibles en kernel: "
                 + memoria.getBcpsQueCaben()
-                + " (configurados: " + maxProcesosActual + ")");
+                + " (maximo permitido: " + procesosReales + " = " + cantidadCPUsActual + " CPU x 5)");
         panelPantalla.agregarMensaje(">>   ListaDeTrabajos en RAM: "
                 + memoria.getTamanoListaTrabajos() + " posiciones ("
                 + maxArchivosActual + " entradas)");
