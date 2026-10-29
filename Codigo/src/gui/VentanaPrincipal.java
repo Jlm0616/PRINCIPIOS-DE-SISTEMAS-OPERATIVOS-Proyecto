@@ -155,7 +155,7 @@ public class VentanaPrincipal extends JFrame {
         try {
             memoria = new Memoria(tamanoMemoriaActual, limiteKernelActual,
                                   maxProcesosActual, maxArchivosActual);
-            cpu = new CPU(limiteKernelActual); // Ya no se usa directo en GestorProcesos, pero se mantiene
+            cpu = new CPU(limiteKernelActual);
             disco = new Disco(tamanoDiscoActual, maxArchivosActual, tamanoSwapActual);
 
             listaProcesos = new ListaProcesos();
@@ -170,6 +170,10 @@ public class VentanaPrincipal extends JFrame {
             gestor = new GestorProcesos(memoria, cpu, cantidadCPUsActual, algoritmoCPUActual,
                                         listaProcesos, listaDeTrabajos,
                                         particionador, disco);
+                                        
+            // Reiniciar el balanceador al crear el sistema (por si acaso)
+            gestor.reiniciarBalanceador();
+            
         } catch (IllegalArgumentException e) {
             int kernelMinimoParaUno = Memoria.getTamanoKernelMinimo(1, maxArchivosActual);
 

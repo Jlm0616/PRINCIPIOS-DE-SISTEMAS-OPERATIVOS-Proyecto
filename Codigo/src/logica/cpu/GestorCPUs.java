@@ -1,5 +1,7 @@
 package logica.cpu;
 
+import logica.ListaProcesos;
+import logica.Planificador;
 import modelo.BCP;
 import modelo.Disco;
 import modelo.EstadoProceso;
@@ -13,10 +15,12 @@ public class GestorCPUs {
     private final List<Nucleo> nucleos;
     private final Memoria memoria;
     private final Disco disco;
+    private final Balanceador balanceador;
 
     public GestorCPUs(int cantidadNucleos, Memoria memoria, int limiteKernel, Disco disco) {
         this.memoria = memoria;
         this.disco = disco;
+        this.balanceador = new Balanceador();
         this.nucleos = new ArrayList<>();
 
         int cantidad = Math.min(cantidadNucleos, 5);
@@ -25,22 +29,21 @@ public class GestorCPUs {
         }
     }
 
-    public Nucleo buscarNucleoLibre() {
-        for (Nucleo nucleo : nucleos) {
-            if (!nucleo.estaOcupado()) {
-                return nucleo;
-            }
-        }
-        return null;
+    // Nuevo método que delega al Balanceador
+    public void balancear(ListaProcesos listaProcesos, Planificador planificador) {
+        balanceador.asignarProcesos(nucleos, listaProcesos, planificador);
+    }
+
+    public void reiniciarBalanceador() {
+        balanceador.reiniciar();
     }
 
     public void ejecutarPasoEnTodos(List<BCP> procesosTerminados) {
         for (Nucleo nucleo : nucleos) {
             if (nucleo.estaOcupado()) {
                 BCP bcpAntes = nucleo.getBcpActual();
-                boolean sigueEnNucleo = nucleo.ejecutarPaso();
+                nucleo.ejecutarPaso();
                 
-                // Si el proceso hizo EXIT, el núcleo se liberó y lo agregamos a la lista
                 if (bcpAntes != null && bcpAntes.getEstado() == EstadoProceso.EXIT) {
                     procesosTerminados.add(bcpAntes);
                 }
@@ -48,11 +51,6 @@ public class GestorCPUs {
         }
     }
 
-    public List<Nucleo> getNucleos() {
-        return nucleos;
-    }
-
-    public int getCantidadNucleos() {
-        return nucleos.size();
-    }
+    public List<Nucleo> getNucleos() { return nucleos; }
+    public int getCantidadNucleos() { return nucleos.size(); }
 }

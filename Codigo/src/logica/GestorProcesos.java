@@ -98,6 +98,10 @@ public class GestorProcesos {
             if (bcp != null) {
                 copiarAsmAArchivos(nombreArchivo, instrucciones);
                 siguienteId++;
+                
+                // Asignar inmediatamente a una CPU usando el Balanceador (Delegado a GestorCPUs)
+                gestorCPUs.balancear(listaProcesos, planificador);
+                
                 return ResultadoCarga.exito(bcp);
             }
             particionador.liberarParticion(base, tamanoNecesario, id);
@@ -171,18 +175,8 @@ public class GestorProcesos {
 
     // Ejecuta un paso del ciclo para TODOS los núcleos
     public boolean ejecutarUnPaso() {
-        // 1. Despachar procesos a núcleos libres
-        Nucleo nucleoLibre = gestorCPUs.buscarNucleoLibre();
-        while (nucleoLibre != null && !listaProcesos.estaVacia()) {
-            BCP siguiente = planificador.seleccionarSiguiente();
-            if (siguiente == null) break;
-
-            System.out.println("[CPU " + nucleoLibre.getIdNucleo() + "] Despachando proceso ID " + siguiente.getId());
-            int dir = listaProcesos.sacarPrimeraDireccion();
-            nucleoLibre.asignarProceso(dir);
-
-            nucleoLibre = gestorCPUs.buscarNucleoLibre();
-        }
+        // 1. Delegar la asignación al Gestor de CPUs (que usa el Balanceador)
+        gestorCPUs.balancear(listaProcesos, planificador);
 
         // 2. Ejecutar un paso de CPU en los núcleos
         List<BCP> terminadosEnEstePaso = new ArrayList<>();
@@ -237,15 +231,6 @@ public class GestorProcesos {
             case 0x41: return TARDANZA_ELIMINAR;
             default:   return TARDANZA_DEFAULT;
         }
-    }
-
-    private boolean fueBloqueoIO(BCP bcp) {
-        int ir = bcp.getIr();
-        if (ir < 0) return false;
-        Instruccion instr = memoria.leerInstruccion(ir);
-        if (instr == null) return false;
-        if (!"INT".equals(instr.getOpcode())) return false;
-        return instr.getCodigoInterrupcion(0) == 0x21;
     }
 
     public int ejecutarAutomatico(Runnable onPaso) {
@@ -363,6 +348,10 @@ public class GestorProcesos {
 
     /* ================== CONSULTAS PARA LA GUI ================== */
 
+    public void reiniciarBalanceador() {
+        gestorCPUs.reiniciarBalanceador();
+    }
+
     public int getTotalProcesosActivos() {
         int enCPU = 0;
         for (Nucleo n : gestorCPUs.getNucleos()) {
@@ -376,11 +365,9 @@ public class GestorProcesos {
             if (n.estaOcupado()) {
                 BCP b = n.getBcpActual();
                 if (b != null) {
-                    // Si está BLOCKED y le queda peso, el sistema sigue activo (esperando I/O)
                     if (b.getEstado() == EstadoProceso.BLOCKED && b.getPesoPendiente() > 0) {
                         return true; 
                     }
-                    // Si está RUNNING, obviamente sigue activo
                     if (b.getEstado() == EstadoProceso.RUNNING) {
                         return true;
                     }
@@ -401,7 +388,7 @@ public class GestorProcesos {
     }
 
     public GestorCPUs getGestorCPUs() { return gestorCPUs; }
-    public Planificador getPlanificador() { return planificador; } // <-- AGREGADO
+    public Planificador getPlanificador() { return planificador; }
     
     public ListaProcesos getListaProcesos() { return listaProcesos; }
     public ListaDeTrabajos getListaDeTrabajos() { return listaDeTrabajos; }
