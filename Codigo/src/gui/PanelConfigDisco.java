@@ -23,7 +23,8 @@ import java.awt.Insets;
  *   2. Cantidad maxima de archivos en el indice.
  *   3. Tamaño de la memoria virtual (swap).
  *
- * No crea objetos Disco: eso lo hace quien lo use (VentanaConfiguracion).
+ * El disco mínimo se calcula dinámicamente según la cantidad de CPUs
+ * y la configuración de archivos/swap.
  */
 public class PanelConfigDisco extends JPanel {
 
@@ -31,17 +32,26 @@ public class PanelConfigDisco extends JPanel {
     private JTextField txtMaxArchivos;
     private JTextField txtTamanoSwap;
 
-    private static final int TAMANO_DISCO_MINIMO = Disco.TAMANO_MINIMO;
     private static final int TAMANO_DISCO_MAXIMO = 65536;
-
     private static final int MAX_ARCHIVOS_MINIMO = Disco.MAX_ARCHIVOS_MINIMO;
     private static final int MAX_ARCHIVOS_MAXIMO = 100;
-
     private static final int TAMANO_SWAP_MINIMO = Disco.TAMANO_SWAP_MINIMO;
     private static final int TAMANO_SWAP_MAXIMO = 65536;
 
+    /** Cantidad de CPUs configurada (para calcular el mínimo real del disco). */
+    private final int cpus;
+
+    /** Disco mínimo calculado dinámicamente. */
+    private final int discoMinimoReal;
+
     // Crea el panel con los valores actuales de configuración.
-    public PanelConfigDisco(int tamanoActual, int maxArchivosActual, int swapActual) {
+    public PanelConfigDisco(int tamanoActual, int maxArchivosActual, int swapActual, int cpus) {
+        this.cpus = cpus;
+        
+        // Calculamos el mínimo requerido
+        this.discoMinimoReal = config.ConfiguracionExterna.calcularDiscoMinimoParaCPUs(
+                cpus, maxArchivosActual, swapActual);
+                
         construirInterfaz(tamanoActual, maxArchivosActual, swapActual);
     }
 
@@ -67,13 +77,8 @@ public class PanelConfigDisco extends JPanel {
         gbc.anchor = GridBagConstraints.WEST;
 
         // ==== Etiqueta informativa ====
-        double porcentajeSwapMinimo = 100.0 * TAMANO_SWAP_MINIMO / TAMANO_DISCO_MINIMO;
-        String porcentajeSwapTexto = String.format("%.1f", porcentajeSwapMinimo)
-                .replace(".0", "");   // "12.5%" o "13%" si fuera entero
-
-        JLabel lblInfo = new JLabel("Disco minimo: " + TAMANO_DISCO_MINIMO
-                + "  |  Swap minimo: " + TAMANO_SWAP_MINIMO
-                + " (" + porcentajeSwapTexto + "% del disco minimo)"
+        JLabel lblInfo = new JLabel("Disco minimo para " + cpus + " CPU(s): " + discoMinimoReal
+                + "  |  Max permitido: " + TAMANO_DISCO_MAXIMO
                 + "  |  Max archivos: " + MAX_ARCHIVOS_MAXIMO);
         lblInfo.setFont(new Font("Segoe UI", Font.ITALIC, 11));
         lblInfo.setForeground(Paleta.TEXTO_NORMAL);
@@ -121,11 +126,12 @@ public class PanelConfigDisco extends JPanel {
 
         // ==== Fila 4: Texto de ayuda ====
         JLabel lblAyuda = new JLabel("<html><body style='width: 420px'>"
-                + "El disco se divide en 3 zonas:<br>"
-                + "&nbsp;&nbsp;<b>Indice:</b> maxArchivos * 3 posiciones "
-                + "(nombre, inicio, fin).<br>"
-                + "&nbsp;&nbsp;<b>Memoria Virtual:</b> tamaño del swap.<br>"
-                + "&nbsp;&nbsp;<b>Archivos:</b> resto del disco.<br><br>"
+                + "El disco se divide en 4 zonas:<br>"
+                + "&nbsp;&nbsp;<b>Indice ASM:</b> maxArchivos * 4 posiciones.<br>"
+                + "&nbsp;&nbsp;<b>Indice PROCESO:</b> maxArchivos * 4 posiciones.<br>"
+                + "&nbsp;&nbsp;<b>Swap:</b> tamaño de memoria virtual.<br>"
+                + "&nbsp;&nbsp;<b>Archivos:</b> resto del disco (min " + Disco.ESPACIO_ARCHIVOS_MINIMO + ").<br><br>"
+                + "<b>Minimo requerido para " + cpus + " CPUs:</b> " + discoMinimoReal + " posiciones.<br><br>"
                 + "Los archivos .asm se guardan en la zona de archivos.<br>"
                 + "Los procesos suspendidos van a la zona de swap."
                 + "</body></html>");
@@ -174,8 +180,10 @@ public class PanelConfigDisco extends JPanel {
             return false;
         }
 
-        if (tamanoIngresado < TAMANO_DISCO_MINIMO) {
-            mostrarError("El tamaño del disco debe ser al menos " + TAMANO_DISCO_MINIMO + ".");
+        if (tamanoIngresado < discoMinimoReal) {
+            mostrarError("El tamaño del disco debe ser al menos " + discoMinimoReal + ".\n"
+                    + "Esto es necesario para " + cpus + " CPU(s) con " 
+                    + maxArchivosIngresado + " archivos.");
             return false;
         }
         if (tamanoIngresado > TAMANO_DISCO_MAXIMO) {
@@ -203,13 +211,13 @@ public class PanelConfigDisco extends JPanel {
             return false;
         }
 
-        int espacioIndice = maxArchivosIngresado * Disco.POSICIONES_POR_ENTRADA_INDICE;
+        int espacioIndice = maxArchivosIngresado * Disco.POSICIONES_POR_ENTRADA_INDICE * 2; // ASM + PROCESO
         int espacioOcupado = espacioIndice + swapIngresado;
         int espacioArchivos = tamanoIngresado - espacioOcupado;
 
         if (espacioArchivos < Disco.ESPACIO_ARCHIVOS_MINIMO) {
             mostrarError("El disco es muy pequeño:\n"
-                    + "  Indice (" + maxArchivosIngresado + " archivos x 3) = " + espacioIndice + "\n"
+                    + "  Indices (" + maxArchivosIngresado + " archivos x 8) = " + espacioIndice + "\n"
                     + "  Swap = " + swapIngresado + "\n"
                     + "  Total ocupado = " + espacioOcupado + "\n"
                     + "  Espacio para archivos = " + espacioArchivos

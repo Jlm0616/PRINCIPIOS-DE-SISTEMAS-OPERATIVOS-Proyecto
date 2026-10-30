@@ -20,20 +20,8 @@ import java.awt.Insets;
 /**
  * Panel de configuracion de la memoria principal.
  *
- * Contiene los campos de tamano total y limite kernel/usuario,
- * con auto-sugerencia del 30% para el limite.
- *
  * REGLA: el limite del kernel SIEMPRE debe ser al menos el 30% de la
- * memoria total.
- *
- * IMPORTANTE: NO se exige que quepan todos los maxProcesos. Si el kernel
- * solo alcanza para 1 BCP, los procesos sobrantes van a la ListaDeTrabajos
- * (swap) y esperan a que se libere RAM. Esto cumple con el enunciado:
- *
- *   "En el caso de que no exista espacio para almacenar un proceso en
- *    memoria principal, este debe esperar hasta que sea liberado."
- *
- * No crea objetos Memoria: eso lo hace quien lo use (VentanaConfiguracion).
+ * memoria total, y debe poder albergar los BCPs de todas las CPUs.
  */
 public class PanelConfigMemoria extends JPanel {
 
@@ -52,26 +40,23 @@ public class PanelConfigMemoria extends JPanel {
     /** Posiciones minimas que deben quedar en la zona de usuario. */
     private static final int POSICIONES_MINIMAS_USUARIO = 1;
 
-    /** Cantidad de procesos configurada (para mostrar info en la ayuda). */
-    private final int maxProcesos;
-
     /** Cantidad de archivos configurada (para mostrar info en la ayuda). */
     private final int maxArchivos;
 
-    /**
-     * Constructor SIN maxArchivos (mantiene compatibilidad).
-     */
-    public PanelConfigMemoria(int tamanoActual, int limiteActual, int maxProcesos) {
-        this(tamanoActual, limiteActual, maxProcesos, 10);
-    }
+    /** Cantidad de CPUs configurada (para calcular el minimo real). */
+    private final int cpus;
 
-    /**
-     * Constructor COMPLETO.
-     */
+    /** Memoria minima calculada dinámicamente según las CPUs. */
+    private final int memoriaMinimaReal;
+
     public PanelConfigMemoria(int tamanoActual, int limiteActual,
-                               int maxProcesos, int maxArchivos) {
-        this.maxProcesos = maxProcesos;
+                               int maxArchivos, int cpus) {
         this.maxArchivos = maxArchivos;
+        this.cpus = cpus;
+        
+        // Calculamos el mínimo requerido según las CPUs
+        this.memoriaMinimaReal = config.ConfiguracionExterna.calcularMemoriaMinimaParaCPUs(cpus);
+        
         construirInterfaz(tamanoActual, limiteActual);
     }
 
@@ -98,7 +83,7 @@ public class PanelConfigMemoria extends JPanel {
 
         // ==== Etiqueta informativa ====
         int porcentajeMostrar = (int) (PORCENTAJE_MINIMO_KERNEL * 100);
-        JLabel lblInfo = new JLabel("Minimo permitido: " + Memoria.TAMANO_MINIMO
+        JLabel lblInfo = new JLabel("Minimo para " + cpus + " CPU(s): " + memoriaMinimaReal
                 + "  |  Maximo permitido: " + TAMANO_MAXIMO
                 + "  |  Kernel minimo: " + porcentajeMostrar + "%");
         lblInfo.setFont(new Font("Segoe UI", Font.ITALIC, 11));
@@ -134,8 +119,7 @@ public class PanelConfigMemoria extends JPanel {
         add(txtLimiteKernel, gbc);
 
         // ==== Fila 3: Texto de ayuda ====
-        int kernelMinimoReal = Memoria.getTamanoKernelMinimo(maxProcesos, maxArchivos);
-        int kernelMinimoParaUno = Memoria.getTamanoKernelMinimo(1, maxArchivos);
+        int kernelMinimoParaTodas = Memoria.getTamanoKernelMinimo(cpus * 5, maxArchivos);
         int tamanoListaTrabajos = maxArchivos * Memoria.POSICIONES_POR_ENTRADA_LISTA_TRABAJOS;
 
         JLabel lblAyuda = new JLabel("<html><body style='width: 420px'>"
@@ -143,15 +127,14 @@ public class PanelConfigMemoria extends JPanel {
                 + "Posiciones limite a (tamano-1) = zona <b>Usuario</b>.<br><br>"
                 + "El kernel debe ocupar al menos el <b>" + porcentajeMostrar + "%</b> "
                 + "de la memoria.<br><br>"
-                + "Con <b>" + maxProcesos + " procesos</b> y <b>" + maxArchivos
+                + "Con <b>" + cpus + " CPUs</b> y <b>" + maxArchivos
                 + " archivos</b>, el kernel <b>ideal</b> necesita <b>"
-                + kernelMinimoReal + "</b> posiciones:<br>"
+                + kernelMinimoParaTodas + "</b> posiciones para albergar "
+                + (cpus * 5) + " BCPs:<br>"
                 + "&nbsp;&nbsp;ListaDeTrabajos = " + tamanoListaTrabajos
                 + " (" + maxArchivos + " × " + Memoria.POSICIONES_POR_ENTRADA_LISTA_TRABAJOS + ")<br>"
                 + "&nbsp;&nbsp;BCPs + TablaMemoria = "
-                + (kernelMinimoReal - tamanoListaTrabajos) + "<br><br>"
-                + "<b>Minimo real:</b> " + kernelMinimoParaUno
-                + " posiciones (para 1 proceso).<br><br>"
+                + (kernelMinimoParaTodas - tamanoListaTrabajos) + "<br><br>"
                 + "<b>Si el kernel no alcanza para todos, los procesos sobrantes "
                 + "iran a la ListaDeTrabajos (swap) y esperaran a que se libere "
                 + "espacio en RAM.</b>"
@@ -225,17 +208,6 @@ public class PanelConfigMemoria extends JPanel {
 
     /**
      * Valida los campos del panel.
-     *
-     * Reglas:
-     *   1. Memoria y kernel deben ser enteros.
-     *   2. Memoria >= Memoria.TAMANO_MINIMO y <= TAMANO_MAXIMO.
-     *   3. Kernel < memoria.
-     *   4. Kernel >= 30% de la memoria.
-     *   5. Debe quedar al menos 1 posicion de usuario.
-     *   6. Kernel >= minimo para 1 BCP + ListaDeTrabajos.
-     *
-     * NO se exige que quepan todos los maxProcesos.
-     * Los procesos sobrantes van a la ListaDeTrabajos (swap).
      */
     public boolean validar() {
         int tamanoIngresado;
@@ -249,8 +221,9 @@ public class PanelConfigMemoria extends JPanel {
             return false;
         }
 
-        if (tamanoIngresado < Memoria.TAMANO_MINIMO) {
-            mostrarError("El tamano de memoria debe ser al menos " + Memoria.TAMANO_MINIMO + ".");
+        if (tamanoIngresado < memoriaMinimaReal) {
+            mostrarError("El tamano de memoria debe ser al menos " + memoriaMinimaReal + " posiciones.\n"
+                    + "Esto es necesario para soportar " + cpus + " CPU(s) con sus 5 procesos cada una.");
             return false;
         }
 
@@ -284,8 +257,7 @@ public class PanelConfigMemoria extends JPanel {
         if (limiteIngresado < kernelMinimoParaUno) {
             mostrarError("El kernel debe alcanzar al menos para 1 proceso.\n\n"
                     + "Con " + maxArchivos + " archivos configurados, el minimo es "
-                    + kernelMinimoParaUno + " posiciones (ListaDeTrabajos + 1 BCP + TablaMemoria).\n\n"
-                    + "Los procesos que no quepan iran a la ListaDeTrabajos (swap).");
+                    + kernelMinimoParaUno + " posiciones (ListaDeTrabajos + 1 BCP + TablaMemoria).");
             return false;
         }
 

@@ -15,7 +15,7 @@ public class VentanaConfiguracion extends JDialog {
 
     private PanelConfigMemoria panelMemoria;
     private PanelConfigDisco panelDisco;
-    private PanelConfigCPU panelCPU; // <-- Usamos el nuevo panel
+    private PanelConfigCPU panelCPU;
     private JTabbedPane tabs;
 
     private boolean confirmado;
@@ -34,7 +34,6 @@ public class VentanaConfiguracion extends JDialog {
                                  int tamanoDiscoActual,
                                  int maxArchivosActual,
                                  int tamanoSwapActual,
-                                 int maxProcesosActual,
                                  int cpusActual,
                                  String algoritmoActual) {
         super(propietario, "Configuracion", true);
@@ -49,7 +48,7 @@ public class VentanaConfiguracion extends JDialog {
 
         construirInterfaz(tamanoMemoriaActual, limiteKernelActual,
                           tamanoDiscoActual, maxArchivosActual,
-                          tamanoSwapActual, maxProcesosActual, cpusActual, algoritmoActual);
+                          tamanoSwapActual, cpusActual, algoritmoActual);
         pack();
         setResizable(false);
         setLocationRelativeTo(propietario);
@@ -60,17 +59,62 @@ public class VentanaConfiguracion extends JDialog {
                                     int tamanoDiscoActual,
                                     int maxArchivosActual,
                                     int tamanoSwapActual,
-                                    int maxProcesosActual,
                                     int cpusActual,
                                     String algoritmoActual) {
+        
+        // Ambos paneles reciben cpusActual para calcular sus mínimos dinámicos
         panelMemoria = new PanelConfigMemoria(
                 tamanoMemoriaActual, limiteKernelActual,
-                maxProcesosActual, maxArchivosActual);
+                maxArchivosActual, cpusActual);
 
         panelDisco = new PanelConfigDisco(
-                tamanoDiscoActual, maxArchivosActual, tamanoSwapActual);
+                tamanoDiscoActual, maxArchivosActual, tamanoSwapActual, cpusActual);
 
         panelCPU = new PanelConfigCPU(cpusActual, algoritmoActual);
+
+        // === Callback para actualizar paneles cuando cambie el número de CPUs ===
+        panelCPU.setOnCpusChanged(() -> {
+            int nuevasCpus = panelCPU.getCantidadCPUs();
+            
+            // Guardar valores actuales antes de recrear
+            int memActual = tamanoMemoriaActual;
+            int kernelActual = limiteKernelActual;
+            int discoActual = tamanoDiscoActual;
+            int archivosActual = maxArchivosActual;
+            int swapActual = tamanoSwapActual;
+            
+            try {
+                if (panelMemoria != null) {
+                    memActual = Integer.parseInt(panelMemoria.getTamanoMemoria() + "");
+                    kernelActual = panelMemoria.getLimiteKernel();
+                }
+                if (panelDisco != null) {
+                    discoActual = panelDisco.getTamanoDisco();
+                    archivosActual = panelDisco.getMaxArchivos();
+                    swapActual = panelDisco.getTamanoSwap();
+                }
+            } catch (Exception ex) {
+                // Si hay error (campos vacíos), usar valores por defecto
+                memActual = config.ConfiguracionExterna.MEMORIA_DEFAULT;
+                discoActual = config.ConfiguracionExterna.DISCO_DEFAULT;
+                swapActual = config.ConfiguracionExterna.MEMORIA_VIRTUAL_DEFAULT;
+            }
+
+            // Recrear paneles con el nuevo mínimo calculado
+            panelMemoria = new PanelConfigMemoria(memActual, kernelActual, archivosActual, nuevasCpus);
+            panelDisco = new PanelConfigDisco(discoActual, archivosActual, swapActual, nuevasCpus);
+
+            // Reemplazar en las pestañas
+            tabs.setComponentAt(0, panelMemoria);
+            tabs.setComponentAt(1, panelDisco);
+            tabs.setTitleAt(0, "Memoria");
+            tabs.setTitleAt(1, "Disco");
+
+            // Forzar el repintado para que se vea el cambio
+            tabs.revalidate();
+            tabs.repaint();
+            pack();
+        });
 
         tabs = new JTabbedPane();
         tabs.addTab("Memoria", panelMemoria);

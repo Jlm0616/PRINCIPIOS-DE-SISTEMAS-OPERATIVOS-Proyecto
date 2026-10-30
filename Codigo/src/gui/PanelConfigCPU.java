@@ -21,6 +21,9 @@ public class PanelConfigCPU extends JPanel {
 
     private JComboBox<Integer> comboCPUs;
     private JComboBox<String> comboAlgoritmo;
+    
+    // Callback para avisar a la ventana cuando cambia la cantidad de CPUs
+    private Runnable onCpusChanged;
 
     // Crea el panel con los valores actuales.
     public PanelConfigCPU(int cpusActual, String algoritmoActual) {
@@ -82,7 +85,9 @@ public class PanelConfigCPU extends JPanel {
 
         // ==== Texto de ayuda ====
         JLabel lblAyuda = new JLabel("<html><body style='width: 300px'>"
-                + "El algoritmo seleccionado se aplicará a todas las CPUs."
+                + "El algoritmo seleccionado se aplicará a todas las CPUs.<br>"
+                + "Al cambiar el número de CPUs, el mínimo de memoria y disco "
+                + "se actualizará automáticamente."
                 + "</body></html>");
         lblAyuda.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         lblAyuda.setForeground(Paleta.TEXTO_NORMAL);
@@ -91,6 +96,13 @@ public class PanelConfigCPU extends JPanel {
         gbc.gridwidth = 2;
         gbc.insets = new Insets(15, 6, 6, 6);
         add(lblAyuda, gbc);
+        
+        // ==== Listener para avisar cuando cambie la cantidad de CPUs ====
+        comboCPUs.addActionListener(e -> {
+            if (onCpusChanged != null) {
+                onCpusChanged.run();
+            }
+        });
     }
 
     // Crea una etiqueta con el estilo del formulario.
@@ -99,6 +111,11 @@ public class PanelConfigCPU extends JPanel {
         label.setFont(Paleta.FUENTE_LABEL_BOLD);
         label.setForeground(Paleta.TEXTO_NORMAL);
         return label;
+    }
+
+    // Configura el callback que se ejecuta cuando cambia la cantidad de CPUs.
+    public void setOnCpusChanged(Runnable callback) {
+        this.onCpusChanged = callback;
     }
 
     // Devuelve la cantidad de CPUs seleccionada.

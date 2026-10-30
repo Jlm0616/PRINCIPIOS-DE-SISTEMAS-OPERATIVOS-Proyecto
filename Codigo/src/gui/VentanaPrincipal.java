@@ -49,7 +49,6 @@ public class VentanaPrincipal extends JFrame {
 
     // Valores actuales
     private int tamanoMemoriaActual;
-    private int maxProcesosActual;
     private int tamanoDiscoActual;
     private int maxArchivosActual;
     private int tamanoSwapActual;
@@ -126,7 +125,6 @@ public class VentanaPrincipal extends JFrame {
     private void aplicarConfiguracion(ConfiguracionExterna config) {
         this.tamanoMemoriaActual = config.getMemoria();
         this.limiteKernelActual = config.getKernel();
-        this.maxProcesosActual = config.getMaxProcesos();
         this.tamanoDiscoActual = config.getDisco();
         this.maxArchivosActual = config.getMaxArchivos();
         this.tamanoSwapActual = config.getMemoriaVirtual();
@@ -174,7 +172,7 @@ public class VentanaPrincipal extends JFrame {
                                         listaProcesos, listaDeTrabajos,
                                         particionador, disco);
                                         
-            // Reiniciar el balanceador al crear el sistema (por si acaso)
+            // Reiniciar el balanceador al crear el sistema
             gestor.reiniciarBalanceador();
             
         } catch (IllegalArgumentException e) {
@@ -495,7 +493,6 @@ public class VentanaPrincipal extends JFrame {
         int viejoDisco = this.tamanoDiscoActual;
         int viejoMaxArchivos = this.maxArchivosActual;
         int viejoSwap = this.tamanoSwapActual;
-        int viejoMaxProcesos = this.maxProcesosActual;
         int viejoCPUs = this.cantidadCPUsActual;
         String viejoAlgoritmo = this.algoritmoCPUActual;
 
@@ -506,7 +503,6 @@ public class VentanaPrincipal extends JFrame {
                 tamanoDiscoActual,
                 maxArchivosActual,
                 tamanoSwapActual,
-                maxProcesosActual,
                 cantidadCPUsActual,
                 algoritmoCPUActual);
 
@@ -541,7 +537,6 @@ public class VentanaPrincipal extends JFrame {
             this.tamanoDiscoActual = viejoDisco;
             this.maxArchivosActual = viejoMaxArchivos;
             this.tamanoSwapActual = viejoSwap;
-            this.maxProcesosActual = viejoMaxProcesos;
             this.cantidadCPUsActual = viejoCPUs;
             this.algoritmoCPUActual = viejoAlgoritmo;
 

@@ -12,22 +12,19 @@ import java.util.Properties;
 /**
  * Configuracion externa del sistema.
  *
- * Lee y escribe los parametros del sistema desde un archivo de texto
- * (config.txt) con formato "clave=valor".
- *
  * Parametros CONFIGURABLES:
  *   - memoria, kernel, disco, max_archivos, memoria_virtual, cpus, algoritmo_cpu.
  *
  * Parametros FIJOS:
- *   - max_procesos = 5.
+ *   - max_procesos = 5 por CPU.
  */
 public class ConfiguracionExterna {
 
     public static final String ARCHIVO = "config.txt";
     public static final double PORCENTAJE_MINIMO_KERNEL = 0.30;
 
-    public static final int MEMORIA_DEFAULT = 256;
-    public static final int KERNEL_DEFAULT = (int) Math.ceil(256 * PORCENTAJE_MINIMO_KERNEL);
+    public static final int MEMORIA_DEFAULT = 1000;
+    public static final int KERNEL_DEFAULT = (int) Math.ceil(1000 * PORCENTAJE_MINIMO_KERNEL);
     public static final int DISCO_DEFAULT = 512;
     public static final int MAX_ARCHIVOS_DEFAULT = 10;
     public static final int MEMORIA_VIRTUAL_DEFAULT = 64;
@@ -36,14 +33,18 @@ public class ConfiguracionExterna {
 
     public static final int MAX_PROCESOS = 5;
 
-    public static final int MEMORIA_MINIMO = 128;
+    // Valores mínimos absolutos (si el usuario pone menos, se corrige)
+    public static final int MEMORIA_MINIMO = 1000;
     public static final int MEMORIA_MAXIMO = 65536;
     public static final int POSICIONES_POR_INSTRUCCION = 1;
-    public static final int DISCO_MINIMO = 128;
+    
+    public static final int DISCO_MINIMO = 512;
     public static final int DISCO_MAXIMO = 65536;
+    
     public static final int MAX_ARCHIVOS_MINIMO = 1;
     public static final int MAX_ARCHIVOS_MAXIMO = 100;
-    public static final int MEMORIA_VIRTUAL_MINIMO = 16;
+    
+    public static final int MEMORIA_VIRTUAL_MINIMO = 64;
     public static final int MEMORIA_VIRTUAL_MAXIMO = 65536;
     public static final int ESPACIO_ARCHIVOS_MINIMO = 64;
     
@@ -96,7 +97,7 @@ public class ConfiguracionExterna {
             System.out.println("[CONFIG]   CPUs: " + cpus);
             System.out.println("[CONFIG]   Algoritmo CPU: " + algoritmoCPU);
             System.out.println("[CONFIG]   MaxProcesos: " + MAX_PROCESOS
-                    + " (FIJO, no configurable)");
+                    + " (FIJO por CPU)");
 
         } catch (IOException e) {
             System.err.println("[CONFIG] Error leyendo " + ARCHIVO
@@ -111,10 +112,10 @@ public class ConfiguracionExterna {
         huboCorrecciones = false;
         mensajesCorrecciones.setLength(0);
 
-        // ==== MEMORIA ====
+        // ==== MEMORIA BASE (Mínimo absoluto) ====
         if (memoria < MEMORIA_MINIMO) {
             agregarCorreccion("memoria=" + memoria
-                    + " invalido (minimo " + MEMORIA_MINIMO + "). Usando "
+                    + " invalido (minimo absoluto " + MEMORIA_MINIMO + "). Usando "
                     + MEMORIA_DEFAULT + ".");
             memoria = MEMORIA_DEFAULT;
         } else if (memoria > MEMORIA_MAXIMO) {
@@ -122,6 +123,38 @@ public class ConfiguracionExterna {
                     + " invalido (maximo " + MEMORIA_MAXIMO + "). Usando "
                     + MEMORIA_DEFAULT + ".");
             memoria = MEMORIA_DEFAULT;
+        }
+
+        // ==== CPUS ====
+        if (cpus < CPUS_MINIMO) {
+            agregarCorreccion("cpus=" + cpus
+                    + " invalido (minimo " + CPUS_MINIMO + "). Usando " + CPUS_DEFAULT + ".");
+            cpus = CPUS_DEFAULT;
+        } else if (cpus > CPUS_MAXIMO) {
+            agregarCorreccion("cpus=" + cpus
+                    + " invalido (maximo " + CPUS_MAXIMO + "). Usando " + CPUS_MAXIMO + ".");
+            cpus = CPUS_MAXIMO;
+        }
+
+        // ==== VALIDACION CRUZADA: Memoria vs CPUs ====
+        // Calcula cuanta memoria se necesita para N CPUs (5 BCPs por CPU).
+        int memoriaMinimaParaCpus = calcularMemoriaMinimaParaCPUs(cpus);
+        
+        if (memoria < memoriaMinimaParaCpus) {
+            agregarCorreccion("memoria=" + memoria
+                    + " no alcanza para " + cpus + " CPUs. Minimo requerido: "
+                    + memoriaMinimaParaCpus + ". Usando " + memoriaMinimaParaCpus + ".");
+            memoria = memoriaMinimaParaCpus;
+        }
+
+        // ==== VALIDACION CRUZADA: Disco vs CPUs ====
+        int discoMinimoParaCpus = calcularDiscoMinimoParaCPUs(cpus, maxArchivos, memoriaVirtual);
+        
+        if (disco < discoMinimoParaCpus) {
+            agregarCorreccion("disco=" + disco
+                    + " no alcanza para " + cpus + " CPUs. Minimo requerido: "
+                    + discoMinimoParaCpus + ". Usando " + discoMinimoParaCpus + ".");
+            disco = discoMinimoParaCpus;
         }
 
         // ==== KERNEL ====
@@ -145,7 +178,7 @@ public class ConfiguracionExterna {
             kernel = memoria - POSICIONES_POR_INSTRUCCION;
         }
 
-        // ==== DISCO ====
+        // ==== DISCO BASE ====
         if (disco < DISCO_MINIMO) {
             agregarCorreccion("disco=" + disco
                     + " invalido (minimo " + DISCO_MINIMO + "). Usando " + DISCO_DEFAULT + ".");
@@ -180,17 +213,6 @@ public class ConfiguracionExterna {
                     + " invalido (maximo " + MEMORIA_VIRTUAL_MAXIMO + "). Usando "
                     + MEMORIA_VIRTUAL_DEFAULT + ".");
             memoriaVirtual = MEMORIA_VIRTUAL_DEFAULT;
-        }
-
-        // ==== CPUS ====
-        if (cpus < CPUS_MINIMO) {
-            agregarCorreccion("cpus=" + cpus
-                    + " invalido (minimo " + CPUS_MINIMO + "). Usando " + CPUS_DEFAULT + ".");
-            cpus = CPUS_DEFAULT;
-        } else if (cpus > CPUS_MAXIMO) {
-            agregarCorreccion("cpus=" + cpus
-                    + " invalido (maximo " + CPUS_MAXIMO + "). Usando " + CPUS_MAXIMO + ".");
-            cpus = CPUS_MAXIMO;
         }
 
         // ==== ALGORITMO CPU ====
@@ -255,6 +277,45 @@ public class ConfiguracionExterna {
             System.err.println("[CONFIG] Guardando " + ARCHIVO + "...");
             guardar();
         }
+    }
+
+    /* ==================== FÓRMULAS DINÁMICAS ==================== */
+
+    /**
+     * Calcula la memoria mínima necesaria para soportar N CPUs al 100%.
+     * Cada CPU necesita espacio en el kernel para 5 BCPs y 5 bloques en la TablaMemoria.
+     * Además, la ListaDeTrabajos ocupa espacio fijo.
+     */
+    public static int calcularMemoriaMinimaParaCPUs(int cpus) {
+        // Tamaño base del kernel para 10 archivos
+        int tamanoListaTrabajos = MAX_ARCHIVOS_DEFAULT * Memoria.POSICIONES_POR_ENTRADA_LISTA_TRABAJOS;
+        
+        // Cada CPU necesita 5 BCPs + 5 bloques en TablaMemoria
+        int bcpsPorCpu = 5;
+        int espacioPorCpu = bcpsPorCpu * (BCP.POSICIONES_REQUERIDAS + Memoria.POSICIONES_POR_BLOQUE_TABLA_MEMORIA);
+        
+        int kernelMinimoReal = tamanoListaTrabajos + (cpus * espacioPorCpu);
+        
+        // Como el kernel debe ser al menos el 30% de la memoria
+        int memoriaMinima = (int) Math.ceil(kernelMinimoReal / PORCENTAJE_MINIMO_KERNEL);
+        
+        // Redondear a un número más amigable (múltiplo de 100)
+        return ((memoriaMinima + 99) / 100) * 100;
+    }
+
+    /**
+     * Calcula el disco mínimo necesario para N CPUs.
+     * Básicamente, el disco debe tener espacio para los índices, el swap,
+     * y los archivos de al menos los procesos de todas las CPUs.
+     */
+    public static int calcularDiscoMinimoParaCPUs(int cpus, int maxArchivos, int memoriaVirtual) {
+        int espacioIndices = maxArchivos * 4 * 2; // Índice ASM + Índice PROCESO
+        int espacioOcupado = espacioIndices + memoriaVirtual;
+        
+        // Necesitamos al menos 64 posiciones para archivos
+        int discoMinimo = espacioOcupado + ESPACIO_ARCHIVOS_MINIMO;
+        
+        return Math.max(discoMinimo, DISCO_MINIMO);
     }
 
     private void agregarCorreccion(String mensaje) {
