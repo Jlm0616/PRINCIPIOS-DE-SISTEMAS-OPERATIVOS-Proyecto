@@ -1,7 +1,3 @@
-MOV AH, 3Ch
-MOV DX, "prueba.txt"
-INT 21H
-MOV AH, 41h
-MOV DX, "prueba.txt"
-INT 21H
+MOV AX, 1
+MOV BX, 2
 INT 20H

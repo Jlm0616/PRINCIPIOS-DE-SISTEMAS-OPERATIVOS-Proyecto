@@ -29,7 +29,9 @@ import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.GridLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.awt.FileDialog;
 import java.awt.Toolkit;
 import java.awt.event.WindowAdapter;
@@ -75,6 +77,9 @@ public class VentanaPrincipal extends JFrame {
     private JButton btnConfigurar;
     private JButton btnLimpiar;
     private JButton btnEstadisticas;
+    
+    // Label para el reloj global
+    private JLabel lblRelojGlobal;
 
     private SwingWorker<Integer, Void> workerAutomatico;
 
@@ -193,7 +198,7 @@ public class VentanaPrincipal extends JFrame {
         }
     }
 
-    // Arma los paneles principales (encabezado, centro, pantalla).
+    // Arma los paneles principales (encabezado y zona central).
     private void inicializarComponentes() {
         JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
         mainPanel.setBackground(Paleta.FONDO_GENERAL);
@@ -202,20 +207,54 @@ public class VentanaPrincipal extends JFrame {
 
         mainPanel.add(crearEncabezado(), BorderLayout.NORTH);
 
-        JPanel centro = new JPanel(new GridLayout(1, 3, 10, 10));
-        centro.setOpaque(false);
-
         panelProcesos = new PanelProcesos();
         panelMemoria = new PanelMemoria();
         panelDisco = new PanelDisco();
-
-        centro.add(panelProcesos);
-        centro.add(panelMemoria);
-        centro.add(panelDisco);
-        mainPanel.add(centro, BorderLayout.CENTER);
-
         panelPantalla = new PanelPantalla();
-        mainPanel.add(panelPantalla, BorderLayout.SOUTH);
+
+        // Se conserva la altura original de Pantalla; el ancho lo decide el layout.
+        int alturaPantalla = panelPantalla.getPreferredSize().height;
+        panelPantalla.setPreferredSize(new Dimension(1, alturaPantalla));
+
+        // Anchos preferidos minimos para que las 3 columnas queden iguales (1/3 c/u)
+        panelProcesos.setPreferredSize(new Dimension(1, 1));
+        panelMemoria.setPreferredSize(new Dimension(1, 1));
+        panelDisco.setPreferredSize(new Dimension(1, 1));
+
+        JPanel centro = new JPanel(new GridBagLayout());
+        centro.setOpaque(false);
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.weightx = 1.0;
+
+        // Procesos + BCP: columna izquierda, ocupa las 2 filas (toda la altura)
+        gbc.gridx = 0; gbc.gridy = 0;
+        gbc.gridheight = 2; gbc.gridwidth = 1;
+        gbc.weighty = 1.0;
+        gbc.insets = new Insets(0, 0, 0, 10);
+        centro.add(panelProcesos, gbc);
+
+        // Memoria principal: fila de arriba, columna central
+        gbc.gridx = 1; gbc.gridy = 0;
+        gbc.gridheight = 1; gbc.gridwidth = 1;
+        gbc.weighty = 1.0;
+        gbc.insets = new Insets(0, 0, 10, 10);
+        centro.add(panelMemoria, gbc);
+
+        // Disco: fila de arriba, columna derecha
+        gbc.gridx = 2; gbc.gridy = 0;
+        gbc.insets = new Insets(0, 0, 10, 0);
+        centro.add(panelDisco, gbc);
+
+        // Pantalla: fila de abajo, debajo de Memoria y Disco (altura fija)
+        gbc.gridx = 1; gbc.gridy = 1;
+        gbc.gridwidth = 2;
+        gbc.weighty = 0.0;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        centro.add(panelPantalla, gbc);
+
+        mainPanel.add(centro, BorderLayout.CENTER);
 
         configurarCallbacks();
     }
@@ -238,9 +277,15 @@ public class VentanaPrincipal extends JFrame {
             panelPantalla.agregarMensaje(">> [DISCO] Proceso " + bcp.getId()
                     + " -> " + operacion + " \"" + bcp.getDx() + "\"");
         });
+        
+        // Callback para actualizar tiempos de llegada
+        panelProcesos.setOnTiemposLlegadaCambiados(tiempos -> {
+            gestor.actualizarTiemposLlegada(tiempos);
+            refrescarTodo();
+        });
     }
 
-    // Crea el encabezado con el título y los botones de acción.
+    // Crea el encabezado con el título, el reloj global y los botones de acción.
     private JPanel crearEncabezado() {
         JPanel encabezado = new JPanel(new BorderLayout());
         encabezado.setOpaque(false);
@@ -253,6 +298,12 @@ public class VentanaPrincipal extends JFrame {
         lblTitulo.setFont(Paleta.FUENTE_TITULO);
         lblTitulo.setForeground(Paleta.TEXTO_CLARO);
         panelTitulo.add(lblTitulo, BorderLayout.WEST);
+
+        // === RELOJ GLOBAL ===
+        lblRelojGlobal = new JLabel("Reloj Global: 0 s");
+        lblRelojGlobal.setFont(Paleta.FUENTE_TITULO_PANEL);
+        lblRelojGlobal.setForeground(Paleta.TEXTO_CLARO);
+        panelTitulo.add(lblRelojGlobal, BorderLayout.EAST);
 
         encabezado.add(panelTitulo, BorderLayout.NORTH);
 
@@ -351,7 +402,6 @@ public class VentanaPrincipal extends JFrame {
             return 0;
         }
 
-        // El GestorProcesos ya registra el .asm en el indice ASM internamente.
         ResultadoCarga resultado = gestor.cargarPrograma(archivo);
 
         switch (resultado.getEstado()) {
@@ -384,28 +434,10 @@ public class VentanaPrincipal extends JFrame {
             return;
         }
         
-        // Hacemos un paso del sistema
+        // Hacemos un paso del sistema (avanza el reloj global y ejecuta)
         gestor.ejecutarUnPaso();
         
-        // Si el proceso quedó bloqueado esperando disco, 
-        // hacemos pasos "fantasma" para consumir su tiempo de espera.
-        boolean hayBloqueados = true;
-        while (hayBloqueados) {
-            hayBloqueados = false;
-            for (Nucleo n : gestor.getGestorCPUs().getNucleos()) {
-                if (n.estaOcupado()) {
-                    BCP b = n.getBcpActual();
-                    if (b != null && b.getEstado() == EstadoProceso.BLOCKED) {
-                        hayBloqueados = true;
-                        break;
-                    }
-                }
-            }
-            if (hayBloqueados) {
-                gestor.ejecutarUnPaso(); // Avanza 1 segundo el tiempo del disco
-            }
-        }
-
+        // Refrescamos los paneles (incluyendo el reloj)
         refrescarTodo();
 
         if (!gestor.hayProcesosActivos()) {
@@ -487,7 +519,6 @@ public class VentanaPrincipal extends JFrame {
             return;
         }
 
-        // Guardar config actual para poder revertir si falla
         int viejoTamano = this.tamanoMemoriaActual;
         int viejoKernel = this.limiteKernelActual;
         int viejoDisco = this.tamanoDiscoActual;
@@ -518,7 +549,6 @@ public class VentanaPrincipal extends JFrame {
         int nuevoCPUs   = dialogo.getCantidadCPUs();
         String nuevoAlgoritmo = dialogo.getAlgoritmoCPU();
 
-        // Aplicar temporalmente
         this.tamanoMemoriaActual = nuevoTamano;
         this.limiteKernelActual = nuevoKernel;
         this.tamanoDiscoActual = nuevoDisco;
@@ -527,11 +557,9 @@ public class VentanaPrincipal extends JFrame {
         this.cantidadCPUsActual = nuevoCPUs;
         this.algoritmoCPUActual = nuevoAlgoritmo;
 
-        // Intentar inicializar (valida la config)
         try {
             inicializarSistema();
         } catch (IllegalArgumentException e) {
-            // Revertir a la config anterior
             this.tamanoMemoriaActual = viejoTamano;
             this.limiteKernelActual = viejoKernel;
             this.tamanoDiscoActual = viejoDisco;
@@ -540,7 +568,6 @@ public class VentanaPrincipal extends JFrame {
             this.cantidadCPUsActual = viejoCPUs;
             this.algoritmoCPUActual = viejoAlgoritmo;
 
-            // NO guardar en config.txt
             JOptionPane.showMessageDialog(this,
                     "La configuracion no es valida:\n\n"
                     + e.getMessage() + "\n\n"
@@ -550,7 +577,6 @@ public class VentanaPrincipal extends JFrame {
             return;
         }
 
-        // Solo si inicializo bien: guardar en config.txt
         config.setMemoria(nuevoTamano);
         config.setKernel(nuevoKernel);
         config.setDisco(nuevoDisco);
@@ -656,6 +682,11 @@ public class VentanaPrincipal extends JFrame {
 
     // Refresca todos los paneles de la UI con el estado actual del sistema.
     private void refrescarTodo() {
+        // Actualizar reloj global
+        if (lblRelojGlobal != null) {
+            lblRelojGlobal.setText("Reloj Global: " + gestor.getRelojGlobal() + " s");
+        }
+
         // 1. Armar el mapa de IRs por CPU
         Map<Integer, Integer> irsPorCPU = new HashMap<>();
         for (Nucleo nucleo : gestor.getGestorCPUs().getNucleos()) {

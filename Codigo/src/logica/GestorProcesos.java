@@ -17,8 +17,6 @@ import java.util.List;
 
 /**
  * Fachada de orquestación del ciclo de vida y ejecución de procesos.
- * 
- * En el Proyecto 2, se añade soporte para múltiples CPUs a través del GestorCPUs.
  */
 public class GestorProcesos {
 
@@ -43,9 +41,12 @@ public class GestorProcesos {
     private List<BCPTerminado> procesosTerminados;
     private List<BCP> procesosBloqueadosInput;
 
+    // === NUEVO: Reloj global y lista de pendientes ===
+    private int relojGlobal = 0;
+    private List<BCP> procesosPendientesLlegada = new ArrayList<>();
+
     private java.util.function.Consumer<String> salidaPantalla;
 
-    // Crea el gestor y sus colaboradores (planificador, gestorCPUs, etc.).
     public GestorProcesos(Memoria memoria,
                           CPU cpu,
                           int cantidadCPUs,
@@ -59,7 +60,6 @@ public class GestorProcesos {
         this.listaDeTrabajos = listaDeTrabajos;
         this.particionador = particionador;
         
-        // Configurar el planificador según el algoritmo elegido
         this.planificador = new Planificador(listaProcesos);
         if ("SPN".equals(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorSPN());
@@ -67,7 +67,6 @@ public class GestorProcesos {
             this.planificador.setEstrategia(new PlanificadorFCFS());
         }
         
-        // Inicializar gestor de CPUs
         this.gestorCPUs = new GestorCPUs(cantidadCPUs, memoria, memoria.getLimiteKernelUsuario(), disco);
         
         this.siguienteId = 1;
@@ -76,9 +75,12 @@ public class GestorProcesos {
         this.disco = disco;
     }
 
+    public int getRelojGlobal() {
+        return relojGlobal;
+    }
+
     /* ==================== CREACIÓN DE PROCESOS ==================== */
 
-    // Carga un .asm como proceso nuevo: intenta RAM, luego swap.
     public ResultadoCarga cargarPrograma(File archivo) {
         Ensamblador ensamblador = new Ensamblador();
 
@@ -91,7 +93,6 @@ public class GestorProcesos {
         int id = siguienteId;
         String nombreArchivo = archivo.getName();
 
-        // 1. Intentar entrar a RAM
         int base = particionador.asignarParticion(tamanoNecesario, id);
         if (base != -1) {
             BCP bcp = crearProcesoEnParticion(instrucciones, base, id);
@@ -99,15 +100,18 @@ public class GestorProcesos {
                 copiarAsmAArchivos(nombreArchivo, instrucciones);
                 siguienteId++;
                 
-                // Asignar inmediatamente a una CPU usando el Balanceador (Delegado a GestorCPUs)
-                gestorCPUs.balancear(listaProcesos, planificador);
+                // En lugar de meterlo directo, lo guardamos en pendientes
+                if (bcp.getTiempoLlegada() <= relojGlobal) {
+                    gestorCPUs.balancear(listaProcesos, planificador);
+                } else {
+                    procesosPendientesLlegada.add(bcp);
+                }
                 
                 return ResultadoCarga.exito(bcp);
             }
             particionador.liberarParticion(base, tamanoNecesario, id);
         }
 
-        // 2. Si no cabe, va a swap
         ResultadoCarga resultadoSwap = suspenderEnSwap(instrucciones, id, nombreArchivo);
         if (resultadoSwap.getEstado() == ResultadoCarga.Estado.EN_ESPERA) {
             siguienteId++;
@@ -173,28 +177,40 @@ public class GestorProcesos {
 
     /* ==================== EJECUCIÓN PASO A PASO ==================== */
 
-    // Ejecuta un paso del ciclo para TODOS los núcleos
     public boolean ejecutarUnPaso() {
-        // 1. Delegar la asignación al Gestor de CPUs (que usa el Balanceador)
+        // 1. Avanzar el reloj global
+        relojGlobal++;
+
+        // 2. Revisar si hay procesos pendientes que ya llegaron a su tiempo
+        List<BCP> llegadosAhora = new ArrayList<>();
+        for (BCP bcp : procesosPendientesLlegada) {
+            if (bcp.getTiempoLlegada() <= relojGlobal) {
+                listaProcesos.agregar(bcp);
+                llegadosAhora.add(bcp);
+                System.out.println("[RELOJ " + relojGlobal + "] Proceso " + bcp.getId() + " ha llegado.");
+            }
+        }
+        procesosPendientesLlegada.removeAll(llegadosAhora);
+
+        // 3. Delegar la asignación al Gestor de CPUs (que usa el Balanceador)
         gestorCPUs.balancear(listaProcesos, planificador);
 
-        // 2. Ejecutar un paso de CPU en los núcleos
+        // 4. Ejecutar un paso de CPU en los núcleos
         List<BCP> terminadosEnEstePaso = new ArrayList<>();
         gestorCPUs.ejecutarPasoEnTodos(terminadosEnEstePaso);
 
-        // 3. Procesar los terminados
+        // 5. Procesar los terminados
         for (BCP bcp : terminadosEnEstePaso) {
             System.out.println("[CPU] Proceso " + bcp.getId() + " TERMINÓ.");
             procesoTerminado(bcp);
         }
 
-        // 4. Actualizar estados de BLOCKED y descontar tiempo
+        // 6. Actualizar estados de BLOCKED y descontar tiempo
         for (Nucleo nucleo : gestorCPUs.getNucleos()) {
             if (nucleo.estaOcupado()) {
                 BCP bcp = nucleo.getBcpActual();
                 if (bcp != null && bcp.getEstado() == EstadoProceso.BLOCKED) {
                     
-                    // Si acaba de bloquearse, le asignamos su tardanza (si no la tiene ya)
                     if (bcp.getPesoPendiente() == 0) {
                         int tardanza = calcularTardanzaDisco(bcp);
                         bcp.setPesoPendiente(tardanza);
@@ -202,14 +218,12 @@ public class GestorProcesos {
                             + " BLOCKED por IO. Tardanza: " + tardanza + "s");
                     } 
                     
-                    // Descontar el segundo
                     if (bcp.getPesoPendiente() > 0) {
                         bcp.setPesoPendiente(bcp.getPesoPendiente() - 1);
                         System.out.println("[CPU " + nucleo.getIdNucleo() + "] Proceso " + bcp.getId() 
                             + " esperando disco... (" + bcp.getPesoPendiente() + "s)");
                     }
                     
-                    // Si ya cumplió la tardanza, pasa a RUNNING
                     if (bcp.getPesoPendiente() == 0) {
                         bcp.setEstado(EstadoProceso.RUNNING);
                         System.out.println("[CPU " + nucleo.getIdNucleo() + "] Proceso " + bcp.getId() + " desbloqueado.");
@@ -361,6 +375,7 @@ public class GestorProcesos {
     }
 
     public boolean hayProcesosActivos() {
+        if (!procesosPendientesLlegada.isEmpty()) return true;
         for (Nucleo n : gestorCPUs.getNucleos()) {
             if (n.estaOcupado()) {
                 BCP b = n.getBcpActual();
@@ -377,7 +392,6 @@ public class GestorProcesos {
         return !listaProcesos.estaVacia() || !procesosBloqueadosInput.isEmpty();
     }
 
-    // Devuelve el BCP de la primera CPU ocupada (para compatibilidad con la GUI antigua)
     public BCP getProcesoActual() {
         for (Nucleo n : gestorCPUs.getNucleos()) {
             if (n.estaOcupado()) return n.getBcpActual();
@@ -397,8 +411,6 @@ public class GestorProcesos {
     public Disco getDisco() { return disco; }
     public ParticionadorDinamico getParticionador() { return particionador; }
 
-    /* ================== CALLBACKS DE INTERRUPCIONES ================== */
-
     public void setSalidaPantalla(java.util.function.Consumer<String> callback) {
         this.salidaPantalla = callback;
         for (Nucleo n : gestorCPUs.getNucleos()) {
@@ -409,6 +421,51 @@ public class GestorProcesos {
     public void setSolicitudArchivo(java.util.function.Consumer<BCP> callback) {
         for (Nucleo n : gestorCPUs.getNucleos()) {
             n.getDespachador().setSolicitudArchivo(callback);
+        }
+    }
+    
+    public void actualizarTiemposLlegada(Object[][] tiempos) {
+        for (Object[] t : tiempos) {
+            int id = (Integer) t[0];
+            int tiempo = (Integer) t[1];
+
+            BCP bcpEncontrado = null;
+
+            // 1. Buscar en núcleos
+            for (Nucleo n : gestorCPUs.getNucleos()) {
+                if (n.estaOcupado()) {
+                    BCP bcp = n.getBcpActual();
+                    if (bcp != null && bcp.getId() == id) {
+                        bcpEncontrado = bcp;
+                        break;
+                    }
+                }
+            }
+
+            // 2. Buscar en la lista de listos
+            if (bcpEncontrado == null) {
+                for (BCP bcp : listaProcesos.toList()) {
+                    if (bcp.getId() == id) {
+                        bcpEncontrado = bcp;
+                        break;
+                    }
+                }
+            }
+
+            // 3. Actualizar y mover a pendientes si es necesario
+            if (bcpEncontrado != null) {
+                bcpEncontrado.setTiempoLlegada(tiempo);
+                
+                // Si el tiempo es mayor al reloj, lo sacamos de la lista de listos
+                // (a menos que ya esté en CPU, en cuyo caso se queda).
+                if (tiempo > relojGlobal) {
+                    if (listaProcesos.contiene(bcpEncontrado)) {
+                        listaProcesos.sacar(bcpEncontrado);
+                        procesosPendientesLlegada.add(bcpEncontrado);
+                        System.out.println("[RELOJ] Proceso " + id + " movido a pendientes (llega en t=" + tiempo + ")");
+                    }
+                }
+            }
         }
     }
 }

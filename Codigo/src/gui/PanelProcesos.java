@@ -11,6 +11,8 @@ import javax.swing.JTable;
 import javax.swing.JScrollPane;
 import javax.swing.JLabel;
 import javax.swing.JComboBox;
+import javax.swing.JButton;
+import javax.swing.JOptionPane;
 import javax.swing.BorderFactory;
 import javax.swing.border.TitledBorder;
 import javax.swing.border.EmptyBorder;
@@ -22,12 +24,15 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
 public class PanelProcesos extends JPanel {
 
@@ -38,6 +43,10 @@ public class PanelProcesos extends JPanel {
     private List<Nucleo> nucleosActuales;
     private JPanel panelDetalleBCP;
     private TitledBorder bordeBCP;
+    private JButton btnTiemposLlegada;
+
+    // Callback para avisar a VentanaPrincipal que se cambiaron los tiempos
+    private Consumer<Object[][]> onTiemposLlegadaCambiados;
 
     private JLabel lblId;
     private JLabel lblPC;
@@ -59,10 +68,16 @@ public class PanelProcesos extends JPanel {
     }
 
     private void construirInterfaz() {
-        setLayout(new BorderLayout(5, 5));
+        // GridBagLayout: el espacio extra de altura se reparte entre la tabla
+        // de procesos (arriba) y el detalle del BCP (abajo) segun weighty.
+        setLayout(new GridBagLayout());
         setOpaque(false);
 
-        // ===== Tabla de procesos (arriba) =====
+        // ===== Panel superior: Tabla + Botón de tiempos =====
+        JPanel panelSuperior = new JPanel(new BorderLayout(5, 5));
+        panelSuperior.setOpaque(false);
+
+        // Tabla de procesos
         modeloProcesos = new DefaultTableModel(new Object[]{"Proceso / CPU", "Estado"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -95,10 +110,7 @@ public class PanelProcesos extends JPanel {
                     c.setForeground(Color.WHITE);
                     setFont(Paleta.FUENTE_LABEL_BOLD);
                 } else {
-                    // Columna 0: Nombre del Proceso / CPU
                     String texto = value != null ? value.toString() : "";
-                    
-                    // Verificar si es una CPU para pintar su color
                     if (texto.startsWith("CPU ")) {
                         try {
                             int idCpu = Integer.parseInt(texto.substring(4, 5));
@@ -129,13 +141,35 @@ public class PanelProcesos extends JPanel {
                 Paleta.FUENTE_TITULO_PANEL,
                 Paleta.VERDE_OSCURO
         ));
-        add(scrollTabla, BorderLayout.NORTH);
+        panelSuperior.add(scrollTabla, BorderLayout.CENTER);
+
+        // Botón de Tiempos de Llegada
+        btnTiemposLlegada = new JButton("Asignar Tiempos de Llegada");
+        btnTiemposLlegada.setFont(Paleta.FUENTE_BOTON);
+        btnTiemposLlegada.setBackground(Paleta.MORADO_ACENTO);
+        btnTiemposLlegada.setForeground(Paleta.TEXTO_CLARO);
+        btnTiemposLlegada.setFocusPainted(false);
+        btnTiemposLlegada.addActionListener(e -> abrirVentanaTiempos());
+
+        JPanel panelBotonTiempos = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        panelBotonTiempos.setOpaque(false);
+        panelBotonTiempos.add(btnTiemposLlegada);
+        panelSuperior.add(panelBotonTiempos, BorderLayout.SOUTH);
+
+        // Fila 0: tabla de procesos (crece junto con el BCP)
+        GridBagConstraints gbcSup = new GridBagConstraints();
+        gbcSup.gridx = 0;
+        gbcSup.gridy = 0;
+        gbcSup.weightx = 1.0;
+        gbcSup.weighty = 0.5;
+        gbcSup.fill = GridBagConstraints.BOTH;
+        gbcSup.insets = new Insets(0, 0, 5, 0);
+        add(panelSuperior, gbcSup);
 
         // ===== Panel BCP actual (abajo) =====
         JPanel panelSur = new JPanel(new BorderLayout(5, 5));
         panelSur.setOpaque(false);
 
-        // Selector de CPU
         JPanel panelSelector = new JPanel(new BorderLayout());
         panelSelector.setOpaque(false);
         panelSelector.setBorder(new EmptyBorder(5, 5, 5, 5));
@@ -148,7 +182,6 @@ public class PanelProcesos extends JPanel {
         panelSelector.add(comboCPUs, BorderLayout.CENTER);
         panelSur.add(panelSelector, BorderLayout.NORTH);
 
-        // Panel de los registros del BCP
         panelDetalleBCP = crearPanelBCP();
         JScrollPane scrollBCP = new JScrollPane(panelDetalleBCP);
         
@@ -163,7 +196,130 @@ public class PanelProcesos extends JPanel {
         scrollBCP.setBorder(bordeBCP);
         panelSur.add(scrollBCP, BorderLayout.CENTER);
 
-        add(panelSur, BorderLayout.CENTER);
+        // Fila 1: selector + detalle del BCP
+        GridBagConstraints gbcSur = new GridBagConstraints();
+        gbcSur.gridx = 0;
+        gbcSur.gridy = 1;
+        gbcSur.weightx = 1.0;
+        gbcSur.weighty = 0.5;
+        gbcSur.fill = GridBagConstraints.BOTH;
+        gbcSur.insets = new Insets(0, 0, 0, 0);
+        add(panelSur, gbcSur);
+    }
+
+    // Abre la ventana para asignar tiempos de llegada
+    private void abrirVentanaTiempos() {
+        if (nucleosActuales == null || nucleosActuales.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "No hay CPUs inicializadas.",
+                    "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // Crear una lista temporal con los BCPs en cola (READY) para pasársela a la ventana
+        List<BCP> procesosEnCola = new ArrayList<>();
+        // Nota: El PanelProcesos no tiene acceso directo a la ListaProcesos, 
+        // así que la ventana usará los procesos de los núcleos y de la RAM que recibe en actualizarLista
+        // Como esto se llama desde el botón, solo tiene los núcleos y lo que se guardó la última vez.
+        // Sin embargo, los procesos en RAM no se guardan en el panel.
+        // Solución: guardar una referencia a la lista de procesos temporal en el método actualizarLista.
+        // Lo haremos con una variable de clase.
+        
+        // Ventana modal
+        VentanaTiemposLlegada ventana = new VentanaTiemposLlegada(
+                (java.awt.Frame) javax.swing.SwingUtilities.getWindowAncestor(this),
+                nucleosActuales,
+                listaProcesosTemporal // <-- Nueva variable
+        );
+
+        ventana.setVisible(true);
+
+        if (ventana.isConfirmado()) {
+            Object[][] tiempos = ventana.getTiempos();
+            if (onTiemposLlegadaCambiados != null) {
+                onTiemposLlegadaCambiados.accept(tiempos);
+            }
+        }
+    }
+
+    // Variable temporal para guardar la lista de procesos en RAM
+    private List<BCP> listaProcesosTemporal = new ArrayList<>();
+
+    public void actualizarLista(ListaProcesos listaProcesos,
+                                List<Nucleo> nucleos,
+                                List<BCP> procesosBloqueadosInput,
+                                ListaDeTrabajos listaDeTrabajos) {
+        this.nucleosActuales = nucleos;
+        this.listaProcesosTemporal = listaProcesos != null ? listaProcesos.toList() : new ArrayList<>();
+        
+        modeloProcesos.setRowCount(0);
+        Set<Integer> idsAgregados = new HashSet<>();
+
+        // 1. Procesos en las CPUs
+        for (Nucleo nucleo : nucleos) {
+            if (nucleo.estaOcupado()) {
+                BCP bcp = nucleo.getBcpActual();
+                modeloProcesos.addRow(new Object[]{
+                    "CPU " + nucleo.getIdNucleo() + " -> ID " + bcp.getId(),
+                    bcp.getEstado().toString()
+                });
+                idsAgregados.add(bcp.getId());
+            } else {
+                modeloProcesos.addRow(new Object[]{
+                    "CPU " + nucleo.getIdNucleo(),
+                    "LIBRE"
+                });
+            }
+        }
+
+        // 2. Lista de procesos en RAM
+        if (listaProcesos != null) {
+            for (BCP bcp : listaProcesos.toList()) {
+                if (idsAgregados.add(bcp.getId())) {
+                    modeloProcesos.addRow(new Object[]{
+                        "ID " + bcp.getId() + " (En RAM)",
+                        bcp.getEstado().toString()
+                    });
+                }
+            }
+        }
+
+        // 3. Procesos bloqueados
+        if (procesosBloqueadosInput != null) {
+            for (BCP bcp : procesosBloqueadosInput) {
+                if (idsAgregados.add(bcp.getId())) {
+                    modeloProcesos.addRow(new Object[]{
+                        "ID " + bcp.getId() + " (Input)",
+                        bcp.getEstado().toString()
+                    });
+                }
+            }
+        }
+
+        // 4. Lista de trabajos (swap)
+        if (listaDeTrabajos != null) {
+            for (Object[] trabajo : listaDeTrabajos.toList()) {
+                String nombre = (trabajo[0] != null) ? trabajo[0].toString() : "(?)";
+                modeloProcesos.addRow(new Object[]{
+                    nombre + " (Swap)",
+                    "NEW"
+                });
+            }
+        }
+
+        if (comboCPUs.getItemCount() != nucleos.size()) {
+            comboCPUs.removeAllItems();
+            for (Nucleo n : nucleos) {
+                comboCPUs.addItem("CPU " + n.getIdNucleo());
+            }
+        }
+        
+        actualizarVistaBCP();
+    }
+
+    // Setter para el callback
+    public void setOnTiemposLlegadaCambiados(Consumer<Object[][]> callback) {
+        this.onTiemposLlegadaCambiados = callback;
     }
 
     private JPanel crearPanelBCP() {
@@ -251,85 +407,12 @@ public class PanelProcesos extends JPanel {
         }
     }
 
-    public void actualizarLista(ListaProcesos listaProcesos,
-                                List<Nucleo> nucleos,
-                                List<BCP> procesosBloqueadosInput,
-                                ListaDeTrabajos listaDeTrabajos) {
-        this.nucleosActuales = nucleos;
-        
-        modeloProcesos.setRowCount(0);
-        Set<Integer> idsAgregados = new HashSet<>();
-
-        // 1. Procesos en las CPUs
-        for (Nucleo nucleo : nucleos) {
-            if (nucleo.estaOcupado()) {
-                BCP bcp = nucleo.getBcpActual();
-                modeloProcesos.addRow(new Object[]{
-                    "CPU " + nucleo.getIdNucleo() + " -> ID " + bcp.getId(),
-                    bcp.getEstado().toString()
-                });
-                idsAgregados.add(bcp.getId());
-            } else {
-                modeloProcesos.addRow(new Object[]{
-                    "CPU " + nucleo.getIdNucleo(),
-                    "LIBRE"
-                });
-            }
-        }
-
-        // 2. Lista de procesos en RAM (READY, BLOCKED)
-        if (listaProcesos != null) {
-            for (BCP bcp : listaProcesos.toList()) {
-                if (idsAgregados.add(bcp.getId())) {
-                    modeloProcesos.addRow(new Object[]{
-                        "ID " + bcp.getId() + " (En RAM)",
-                        bcp.getEstado().toString()
-                    });
-                }
-            }
-        }
-
-        // 3. Procesos bloqueados por input
-        if (procesosBloqueadosInput != null) {
-            for (BCP bcp : procesosBloqueadosInput) {
-                if (idsAgregados.add(bcp.getId())) {
-                    modeloProcesos.addRow(new Object[]{
-                        "ID " + bcp.getId() + " (Input)",
-                        bcp.getEstado().toString()
-                    });
-                }
-            }
-        }
-
-        // 4. Lista de trabajos (procesos en disco, NEW)
-        if (listaDeTrabajos != null) {
-            for (Object[] trabajo : listaDeTrabajos.toList()) {
-                String nombre = (trabajo[0] != null) ? trabajo[0].toString() : "(?)";
-                modeloProcesos.addRow(new Object[]{
-                    nombre + " (Swap)",
-                    "NEW"
-                });
-            }
-        }
-
-        // Actualizar el combo de CPUs si cambió la cantidad
-        if (comboCPUs.getItemCount() != nucleos.size()) {
-            comboCPUs.removeAllItems();
-            for (Nucleo n : nucleos) {
-                comboCPUs.addItem("CPU " + n.getIdNucleo());
-            }
-        }
-        
-        actualizarVistaBCP();
-    }
-
     private void actualizarVistaBCP() {
         if (nucleosActuales == null || comboCPUs.getSelectedIndex() < 0) return;
         
         int index = comboCPUs.getSelectedIndex();
         BCP bcp = null;
         
-        // Cambiar color del borde del título del BCP
         if (bordeBCP != null) {
             bordeBCP.setTitleColor(Paleta.getColorCPU(index));
             bordeBCP.setBorder(BorderFactory.createLineBorder(Paleta.getColorCPU(index), 2));
