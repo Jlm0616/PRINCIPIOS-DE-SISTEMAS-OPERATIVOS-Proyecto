@@ -14,14 +14,19 @@ import java.awt.Insets;
 
 /**
  * Panel de configuracion de las CPUs.
- * 
+ *
  * Permite elegir la cantidad de núcleos y el algoritmo de planificación.
+ *
+ * PROYECTO 2: algoritmos disponibles actualmente:
+ *   FCFS, SPN, SRT.
+ * Se irán agregando los demás (RR, HRRN, Selfish RR, Lottery,
+ * Prioridad, Guaranteed, MLFQ).
  */
 public class PanelConfigCPU extends JPanel {
 
     private JComboBox<Integer> comboCPUs;
     private JComboBox<String> comboAlgoritmo;
-    
+
     // Callback para avisar a la ventana cuando cambia la cantidad de CPUs
     private Runnable onCpusChanged;
 
@@ -73,8 +78,9 @@ public class PanelConfigCPU extends JPanel {
         add(lblAlgoritmo, gbc);
 
         comboAlgoritmo = new JComboBox<>(new String[]{
-            "FCFS", 
-            "SPN" 
+            "FCFS",
+            "SPN",
+            "SRT"
             // Aquí se irán agregando los demás algoritmos
         });
         comboAlgoritmo.setSelectedItem(algoritmoActual);
@@ -96,7 +102,7 @@ public class PanelConfigCPU extends JPanel {
         gbc.gridwidth = 2;
         gbc.insets = new Insets(15, 6, 6, 6);
         add(lblAyuda, gbc);
-        
+
         // ==== Listener para avisar cuando cambie la cantidad de CPUs ====
         comboCPUs.addActionListener(e -> {
             if (onCpusChanged != null) {

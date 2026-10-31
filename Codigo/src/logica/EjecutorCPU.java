@@ -24,6 +24,10 @@ import modelo.Disco;
  * PROYECTO 2: el tiempo de fin simulado NO se marca aqui. Se marca en
  * GestorProcesos.procesoTerminado(relojGlobal), que es quien conoce el
  * reloj global. Aqui solo se cambia el estado a EXIT.
+ *
+ * PROYECTO 2 (SRT): el tiempoRestante se decrementa UNA VEZ por
+ * instruccion COMPLETADA (no por tick de peso). Es lo que usa SRT
+ * para decidir si expulsar al proceso de la CPU.
  */
 public class EjecutorCPU {
 
@@ -94,6 +98,13 @@ public class EjecutorCPU {
         } catch (IllegalStateException e) {
             terminarConError(e.getMessage());
             return true;
+        }
+
+        // === NUEVO (SRT): la instrucción se completó, consumió 1 unidad
+        //                 de la ráfaga. Decrementar tiempoRestante.
+        int restante = bcp.getTiempoRestante();
+        if (restante > 0) {
+            bcp.setTiempoRestante(restante - 1);
         }
 
         if (!saltoEjecutado) {

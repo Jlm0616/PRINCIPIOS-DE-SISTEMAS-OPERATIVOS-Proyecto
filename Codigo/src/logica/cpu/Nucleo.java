@@ -75,6 +75,44 @@ public class Nucleo {
         return sigueVivo;
     }
 
+    /**
+     * Expulsa al proceso actual del nucleo SIN terminarlo.
+     *
+     * PROYECTO 2 (SRT): se usa cuando el planificador apropiativo decide
+     * que otro proceso de la cola READY debe ejecutarse en lugar del actual.
+     *
+     * Diferencia con {@link #liberar()}:
+     *   - liberar(): se usa cuando el proceso ya termino (EXIT) o se descarta.
+     *   - expulsarProceso(): el proceso sigue vivo, vuelve a READY.
+     *
+     * Efectos:
+     *   1. Guarda el contexto del proceso (registros de CPU → BCP).
+     *   2. Marca el proceso como READY y desasigna la CPU.
+     *   3. Limpia el ejecutor y libera el nucleo.
+     *   4. NO libera memoria del proceso (eso solo pasa en EXIT).
+     *   5. NO marca fin ni libera particion.
+     *
+     * El llamador (GestorProcesos) debe re-encolar el BCP en la
+     * ListaProcesos despues de llamar a este metodo.
+     */
+    public void expulsarProceso() {
+        if (!ocupado) return;
+
+        // Paso 1: guardar el contexto del proceso actual en su BCP
+        despachador.guardarContexto();
+
+        BCP bcp = despachador.getBcpActual();
+        if (bcp != null) {
+            // Paso 2: el proceso sigue vivo, vuelve a READY
+            bcp.setEstado(EstadoProceso.READY);
+            bcp.setCpuAsignado(-1);
+        }
+
+        // Paso 3: liberar el nucleo
+        despachador.limpiarEjecutor();
+        ocupado = false;
+    }
+
     public void liberar() {
         BCP bcp = despachador.getBcpActual();
         if (bcp != null) {

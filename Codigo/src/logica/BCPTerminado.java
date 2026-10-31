@@ -1,6 +1,11 @@
 package logica;
 
+import logica.estadisticas.IntervaloEjecucion;
 import modelo.EstadoProceso;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Snapshot de un BCP terminado.
@@ -20,6 +25,8 @@ import modelo.EstadoProceso;
  *    NO LocalDateTime. Esto corrige el bug de estadisticas que
  *    mostraban tiempo real en vez de tiempo simulado.
  *  - El centinela -1 indica "no marcado".
+ *  - Se agrega la lista de IntervaloEjecucion (para el diagrama
+ *    de Gantt por CPU) y el id de la CPU en la que corrio.
  */
 public class BCPTerminado {
 
@@ -39,11 +46,32 @@ public class BCPTerminado {
     private final int turnaround;
     private final double trTs;
 
-    // Crea un snapshot con los datos del proceso terminado.
+    // === NUEVOS CAMPOS (Diagrama de Gantt) ===
+    private final int cpuAsignado;
+    private final List<IntervaloEjecucion> intervalosEjecucion;
+
+    /**
+     * Constructor completo (con CPU e intervalos).
+     *
+     * @param id                id del proceso
+     * @param estadoFinal       estado al terminar (EXIT)
+     * @param tiempoInicio      instante simulado de inicio (o -1)
+     * @param tiempoFin         instante simulado de fin (o -1)
+     * @param base              direccion base en memoria
+     * @param alcance           tamano del proceso
+     * @param prioridad         prioridad original
+     * @param tiempoLlegada     instante de llegada
+     * @param turnaround        TF - TL + 1
+     * @param trTs              turnaround / rafaga
+     * @param cpuAsignado       id del nucleo donde termino (-1 si N/A)
+     * @param intervalos        lista de intervalos de ejecucion
+     */
     public BCPTerminado(int id, EstadoProceso estadoFinal,
                         int tiempoInicio, int tiempoFin,
                         int base, int alcance, int prioridad,
-                        int tiempoLlegada, int turnaround, double trTs) {
+                        int tiempoLlegada, int turnaround, double trTs,
+                        int cpuAsignado,
+                        List<IntervaloEjecucion> intervalos) {
         this.id = id;
         this.estadoFinal = estadoFinal;
         this.tiempoInicio = tiempoInicio;
@@ -54,7 +82,27 @@ public class BCPTerminado {
         this.tiempoLlegada = tiempoLlegada;
         this.turnaround = turnaround;
         this.trTs = trTs;
+        this.cpuAsignado = cpuAsignado;
+        this.intervalosEjecucion = (intervalos != null)
+                ? new ArrayList<>(intervalos)
+                : new ArrayList<>();
     }
+
+    /**
+     * Constructor legacy (sin CPU ni intervalos).
+     * Mantiene compatibilidad con codigo existente.
+     */
+    public BCPTerminado(int id, EstadoProceso estadoFinal,
+                        int tiempoInicio, int tiempoFin,
+                        int base, int alcance, int prioridad,
+                        int tiempoLlegada, int turnaround, double trTs) {
+        this(id, estadoFinal, tiempoInicio, tiempoFin,
+             base, alcance, prioridad,
+             tiempoLlegada, turnaround, trTs,
+             -1, new ArrayList<>());
+    }
+
+    /* ==================== GETTERS BASICOS ==================== */
 
     public int getId() {
         return id;
@@ -92,14 +140,14 @@ public class BCPTerminado {
         return prioridad;
     }
 
-    // === NUEVOS GETTERS (Proyecto 2) ===
+    /* ==================== GETTERS PROYECTO 2 ==================== */
 
     // Devuelve el tiempo de llegada del proceso.
     public int getTiempoLlegada() {
         return tiempoLlegada;
     }
 
-    // Devuelve el turnaround (tiempo final - tiempo de llegada).
+    // Devuelve el turnaround (tiempo final - tiempo de llegada + 1).
     public int getTurnaround() {
         return turnaround;
     }
@@ -109,9 +157,38 @@ public class BCPTerminado {
         return trTs;
     }
 
+    /* ==================== GETTERS DIAGRAMA GANTT ==================== */
+
+    /**
+     * @return id del nucleo donde corrio el proceso, o -1 si no aplica.
+     */
+    public int getCpuAsignado() {
+        return cpuAsignado;
+    }
+
+    /**
+     * @return lista inmutable de intervalos de ejecucion.
+     */
+    public List<IntervaloEjecucion> getIntervalosEjecucion() {
+        return Collections.unmodifiableList(intervalosEjecucion);
+    }
+
+    /**
+     * @return true si el proceso tiene al menos un intervalo registrado.
+     */
+    public boolean tieneIntervalos() {
+        return !intervalosEjecucion.isEmpty();
+    }
+
+    /* ==================== DERIVADOS ==================== */
+
     /**
      * Devuelve la duracion simulada (tiempoFin - tiempoInicio),
      * o -1 si faltan tiempos.
+     *
+     * NOTA: esta es la duracion "Stallings" (sin +1). Para la
+     * duracion con la convencion del curso (fin - inicio + 1), usar
+     * LineaProceso.getDuracion().
      */
     public int getDuracionSimulada() {
         if (tiempoInicio == TIEMPO_NO_MARCADO || tiempoFin == TIEMPO_NO_MARCADO) {
@@ -123,9 +200,11 @@ public class BCPTerminado {
     @Override
     public String toString() {
         return "BCPTerminado[id=" + id
+                + ", cpu=" + cpuAsignado
                 + ", inicio=" + tiempoInicio
                 + ", fin=" + tiempoFin
                 + ", turnaround=" + turnaround
-                + ", trTs=" + String.format("%.2f", trTs) + "]";
+                + ", trTs=" + String.format("%.2f", trTs)
+                + ", intervalos=" + intervalosEjecucion.size() + "]";
     }
 }

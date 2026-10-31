@@ -1,6 +1,8 @@
 package gui;
 
 import logica.BCPTerminado;
+import logica.estadisticas.Estadisticas;
+import logica.estadisticas.LineaProceso;
 
 import javax.swing.JDialog;
 import javax.swing.JPanel;
@@ -8,6 +10,7 @@ import javax.swing.JTable;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
 import javax.swing.BorderFactory;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
@@ -30,22 +33,22 @@ import java.util.List;
 /**
  * Ventana modal de estadisticas de procesos terminados.
  *
- * Muestra:
- *   - Un resumen general (total, duracion total, promedio).
- *   - Una tabla con todos los procesos (ID, inicio, fin, duracion, %).
- *   - Un panel de detalle del proceso seleccionado.
+ * Organizada en 3 pestañas:
+ *   - Resumen:  totales, promedios, Tr/Ts.
+ *   - Procesos: tabla con todos los procesos + detalle del seleccionado.
+ *   - Gantt:    diagrama de ejecucion por CPU.
  *
- * PROYECTO 2:
- *  - Los tiempos (inicio, fin, duracion) son del RELOJ GLOBAL SIMULADO
- *    (int), no LocalDateTime. Se muestran como "t=X" o "X s".
- *  - El centinela -1 (TIEMPO_NO_MARCADO) se muestra como "-".
+ * PROYECTO 2 - SOLID:
+ *  - La ventana NO calcula estadisticas. Delega TODO a {@link Estadisticas}.
+ *  - Solo formatea y muestra (SRP).
+ *  - Depende de la abstraccion Estadisticas (DIP).
+ *  - Cada pestaña tiene una unica responsabilidad visual (SRP).
  */
 public class VentanaEstadisticas extends JDialog {
 
     private JTable tabla;
     private DefaultTableModel modelo;
-    private List<BCPTerminado> procesos;
-    private int duracionTotal;
+    private Estadisticas estadisticas;
 
     // Panel de detalle
     private JLabel lblId;
@@ -54,66 +57,56 @@ public class VentanaEstadisticas extends JDialog {
     private JLabel lblFin;
     private JLabel lblDuracion;
     private JLabel lblPorcentaje;
+    private JLabel lblTurnaround;
+    private JLabel lblTrTs;
+    private JLabel lblCpu;
     private JLabel lblPrioridad;
     private JLabel lblBase;
     private JLabel lblAlcance;
 
-    // Crea la ventana modal con la lista de procesos terminados.
+    /**
+     * Crea la ventana modal con la lista de procesos terminados.
+     *
+     * @param propietario frame padre
+     * @param procesos    lista de snapshots de procesos terminados
+     */
     public VentanaEstadisticas(Frame propietario, List<BCPTerminado> procesos) {
         super(propietario, "Estadisticas de Procesos", true);
-        this.procesos = procesos;
-        this.duracionTotal = calcularDuracionTotal();
+
+        // Delegacion del calculo (DIP)
+        this.estadisticas = new Estadisticas(procesos);
 
         construirInterfaz();
         pack();
-        setSize(850, 700);
+        setSize(1200, 850);
         setResizable(true);
         setLocationRelativeTo(propietario);
     }
 
-    // Calcula la suma de duraciones simuladas de todos los procesos terminados.
-    private int calcularDuracionTotal() {
-        int total = 0;
-        for (BCPTerminado pt : procesos) {
-            int d = pt.getDuracionSimulada();
-            if (d > 0) total += d;
-        }
-        return total;
-    }
-
-    // Construye la interfaz: título, resumen, tabla, detalle y botón cerrar.
+    // Construye la interfaz: titulo, pestañas, boton cerrar.
     private void construirInterfaz() {
         JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
         mainPanel.setBackground(Paleta.FONDO_GENERAL);
         mainPanel.setBorder(new EmptyBorder(15, 15, 15, 15));
         setContentPane(mainPanel);
 
-        // ==== Título ====
+        // ==== Titulo ====
         JLabel lblTitulo = new JLabel("Estadisticas de Procesos");
         lblTitulo.setFont(Paleta.FUENTE_TITULO);
         lblTitulo.setForeground(Paleta.VERDE_OSCURO);
         mainPanel.add(lblTitulo, BorderLayout.NORTH);
 
-        // ==== Centro: resumen + tabla + detalle ====
-        JPanel centro = new JPanel(new BorderLayout(10, 10));
-        centro.setOpaque(false);
+        // ==== Pestañas ====
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.setFont(Paleta.FUENTE_LABEL_BOLD);
 
-        // IMPORTANTE: crear el panel de detalle PRIMERO para que los
-        // labels existan cuando la tabla dispare mostrarDetalle().
-        JPanel panelDetalle = crearPanelDetalle();
+        tabs.addTab("Resumen", crearPestanaResumen());
+        tabs.addTab("Procesos", crearPestanaProcesos());
+        tabs.addTab("Diagrama Gantt", crearPestanaGantt());
 
-        // Panel superior: resumen
-        centro.add(crearPanelResumen(), BorderLayout.NORTH);
+        mainPanel.add(tabs, BorderLayout.CENTER);
 
-        // Panel central: tabla
-        centro.add(crearPanelTabla(), BorderLayout.CENTER);
-
-        // Panel inferior: detalle (ya creado)
-        centro.add(panelDetalle, BorderLayout.SOUTH);
-
-        mainPanel.add(centro, BorderLayout.CENTER);
-
-        // ==== Botón cerrar ====
+        // ==== Boton cerrar ====
         JButton btnCerrar = new JButton("Cerrar");
         btnCerrar.setFont(Paleta.FUENTE_BOTON);
         btnCerrar.setBackground(Paleta.VERDE_PRINCIPAL);
@@ -127,9 +120,31 @@ public class VentanaEstadisticas extends JDialog {
         mainPanel.add(panelBotones, BorderLayout.SOUTH);
     }
 
-    /* ==================== RESUMEN ==================== */
+    /* ==================== PESTAÑA: RESUMEN ==================== */
 
-    // Crea el panel de resumen con totales y promedios.
+    // Crea la pestaña del resumen.
+    private JPanel crearPestanaResumen() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(Paleta.FONDO_GENERAL);
+        panel.setBorder(new EmptyBorder(15, 15, 15, 15));
+
+        panel.add(crearPanelResumen(), BorderLayout.NORTH);
+
+        // Texto de ayuda
+        JLabel lblAyuda = new JLabel("<html><body style='width: 700px'>"
+                + "<h3>Resumen de la ejecución</h3>"
+                + "<p>Esta pestaña muestra los totales y promedios de la simulación.</p>"
+                + "<p>Cambia a <b>Procesos</b> para ver el detalle por proceso, "
+                + "o a <b>Diagrama Gantt</b> para ver la ejecución en el tiempo por CPU.</p>"
+                + "</body></html>");
+        lblAyuda.setFont(Paleta.FUENTE_MONO);
+        lblAyuda.setForeground(Paleta.TEXTO_NORMAL);
+        panel.add(lblAyuda, BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    // Crea el panel de resumen con totales y promedios (de Estadisticas).
     private JPanel crearPanelResumen() {
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setBackground(Color.WHITE);
@@ -142,37 +157,34 @@ public class VentanaEstadisticas extends JDialog {
                         Paleta.FUENTE_TITULO_PANEL,
                         Paleta.VERDE_OSCURO
                 ),
-                new EmptyBorder(10, 15, 10, 15)
+                new EmptyBorder(15, 20, 15, 20)
         ));
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(3, 10, 3, 10);
+        gbc.insets = new Insets(6, 15, 6, 15);
         gbc.weightx = 1;
 
-        int promedio = (procesos.size() > 0) ? duracionTotal / procesos.size() : 0;
-        int masLargo = 0;
-        int masCorto = Integer.MAX_VALUE;
-        for (BCPTerminado pt : procesos) {
-            int d = pt.getDuracionSimulada();
-            if (d > 0) {
-                if (d > masLargo) masLargo = d;
-                if (d < masCorto) masCorto = d;
-            }
-        }
-        if (masCorto == Integer.MAX_VALUE) masCorto = 0;
-
-        JLabel l1 = crearLabelResumen("Total de procesos:", String.valueOf(procesos.size()));
-        JLabel l2 = crearLabelResumen("Duracion total:", duracionTotal + " s");
-        JLabel l3 = crearLabelResumen("Duracion promedio:", promedio + " s");
-        JLabel l4 = crearLabelResumen("Proceso mas largo:", masLargo + " s");
-        JLabel l5 = crearLabelResumen("Proceso mas corto:", masCorto + " s");
+        // Todos los datos vienen de Estadisticas (SRP + DIP)
+        JLabel l1 = crearLabelResumen("Total de procesos:",
+                String.valueOf(estadisticas.getCantidadProcesos()));
+        JLabel l2 = crearLabelResumen("Duracion total:",
+                estadisticas.getDuracionTotal() + " s");
+        JLabel l3 = crearLabelResumen("Duracion promedio:",
+                estadisticas.getDuracionPromedio() + " s");
+        JLabel l4 = crearLabelResumen("Proceso mas largo:",
+                estadisticas.getDuracionMasLarga() + " s");
+        JLabel l5 = crearLabelResumen("Proceso mas corto:",
+                estadisticas.getDuracionMasCorta() + " s");
+        JLabel l6 = crearLabelResumen("Promedio Tr/Ts:",
+                String.format("%.2f", estadisticas.getPromedioTrTs()));
 
         gbc.gridx = 0; gbc.gridy = 0; panel.add(l1, gbc);
         gbc.gridx = 1; panel.add(l2, gbc);
         gbc.gridx = 0; gbc.gridy = 1; panel.add(l3, gbc);
         gbc.gridx = 1; panel.add(l4, gbc);
         gbc.gridx = 0; gbc.gridy = 2; panel.add(l5, gbc);
+        gbc.gridx = 1; panel.add(l6, gbc);
 
         return panel;
     }
@@ -185,7 +197,26 @@ public class VentanaEstadisticas extends JDialog {
         return label;
     }
 
-    /* ==================== TABLA ==================== */
+    /* ==================== PESTAÑA: PROCESOS ==================== */
+
+    // Crea la pestaña con la tabla + detalle.
+    private JPanel crearPestanaProcesos() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(Paleta.FONDO_GENERAL);
+        panel.setBorder(new EmptyBorder(15, 15, 15, 15));
+
+        // IMPORTANTE: crear el detalle PRIMERO para que los labels existan
+        // cuando la tabla dispare mostrarDetalle().
+        JPanel panelDetalle = crearPanelDetalle();
+
+        // Tabla en el centro
+        panel.add(crearPanelTabla(), BorderLayout.CENTER);
+
+        // Detalle abajo
+        panel.add(panelDetalle, BorderLayout.SOUTH);
+
+        return panel;
+    }
 
     // Crea el panel de la tabla con todos los procesos terminados.
     private JPanel crearPanelTabla() {
@@ -201,30 +232,39 @@ public class VentanaEstadisticas extends JDialog {
         ));
 
         modelo = new DefaultTableModel(
-                new Object[]{"ID", "Inicio (t)", "Fin (t)", "Duracion", "% del total", "Prioridad"}, 0) {
+                new Object[]{"ID", "CPU", "Inicio", "Fin", "Duracion",
+                             "Turnaround", "Tr/Ts", "% del total", "Prioridad"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
             }
         };
 
-        for (BCPTerminado pt : procesos) {
-            int dur = pt.getDuracionSimulada();
+        List<LineaProceso> lineas = estadisticas.getLineas();
+        int duracionTotal = estadisticas.getDuracionTotal();
+
+        for (LineaProceso lp : lineas) {
+            int dur = lp.getDuracion();
             double porcentaje = (duracionTotal > 0 && dur > 0)
                     ? (dur * 100.0 / duracionTotal) : 0;
+            String cpuStr = (lp.getCpuAsignado() >= 0)
+                    ? "CPU " + lp.getCpuAsignado() : "-";
             modelo.addRow(new Object[]{
-                "ID " + pt.getId(),
-                formatearTiempo(pt.getTiempoInicio()),
-                formatearTiempo(pt.getTiempoFin()),
+                "ID " + lp.getId(),
+                cpuStr,
+                formatearTiempo(lp.getInicio()),
+                formatearTiempo(lp.getFin()),
                 dur + " s",
+                String.valueOf(lp.getTurnaround()),
+                String.format("%.2f", lp.getTrTs()),
                 String.format("%.1f%%", porcentaje),
-                String.valueOf(pt.getPrioridad())
+                String.valueOf(lp.getPrioridad())
             });
         }
 
         tabla = new JTable(modelo);
         tabla.setFont(Paleta.FUENTE_MONO);
-        tabla.setRowHeight(26);
+        tabla.setRowHeight(28);
         tabla.setGridColor(new Color(0xE0, 0xE0, 0xE0));
         tabla.setShowGrid(true);
         tabla.setFillsViewportHeight(true);
@@ -255,11 +295,10 @@ public class VentanaEstadisticas extends JDialog {
         });
 
         JScrollPane scroll = new JScrollPane(tabla);
-        scroll.setPreferredSize(new Dimension(0, 200));
         panel.add(scroll, BorderLayout.CENTER);
 
-        // Seleccionar primera fila DESPUÉS de que todos los labels existan
-        if (!procesos.isEmpty()) {
+        // Seleccionar primera fila DESPUES de que todos los labels existan
+        if (!lineas.isEmpty()) {
             tabla.setRowSelectionInterval(0, 0);
         } else {
             mostrarDetalle(-1);
@@ -267,8 +306,6 @@ public class VentanaEstadisticas extends JDialog {
 
         return panel;
     }
-
-    /* ==================== DETALLE ==================== */
 
     // Crea el panel de detalle del proceso seleccionado.
     private JPanel crearPanelDetalle() {
@@ -291,19 +328,26 @@ public class VentanaEstadisticas extends JDialog {
         gbc.insets = new Insets(4, 8, 4, 8);
         gbc.weightx = 1;
 
-        lblId        = crearLabelDetalle("ID", "-");
-        lblEstado    = crearLabelDetalle("Estado", "-");
-        lblInicio    = crearLabelDetalle("Inicio (t)", "-");
-        lblFin       = crearLabelDetalle("Fin (t)", "-");
-        lblDuracion  = crearLabelDetalle("Duracion", "-");
-        lblPorcentaje= crearLabelDetalle("% del total", "-");
-        lblPrioridad = crearLabelDetalle("Prioridad", "-");
-        lblBase      = crearLabelDetalle("Base", "-");
-        lblAlcance   = crearLabelDetalle("Alcance", "-");
+        lblId         = crearLabelDetalle("ID", "-");
+        lblEstado     = crearLabelDetalle("Estado", "-");
+        lblCpu        = crearLabelDetalle("CPU", "-");
+        lblInicio     = crearLabelDetalle("Inicio", "-");
+        lblFin        = crearLabelDetalle("Fin", "-");
+        lblDuracion   = crearLabelDetalle("Duracion", "-");
+        lblPorcentaje = crearLabelDetalle("% del total", "-");
+        lblTurnaround = crearLabelDetalle("Turnaround", "-");
+        lblTrTs       = crearLabelDetalle("Tr/Ts", "-");
+        lblPrioridad  = crearLabelDetalle("Prioridad", "-");
+        lblBase       = crearLabelDetalle("Base", "-");
+        lblAlcance    = crearLabelDetalle("Alcance", "-");
 
         int y = 0;
         gbc.gridx = 0; gbc.gridy = y; panel.add(lblId, gbc);
         gbc.gridx = 1; panel.add(lblEstado, gbc);
+        y++;
+
+        gbc.gridx = 0; gbc.gridy = y; panel.add(lblCpu, gbc);
+        gbc.gridx = 1; panel.add(lblPrioridad, gbc);
         y++;
 
         gbc.gridx = 0; gbc.gridy = y; panel.add(lblInicio, gbc);
@@ -314,11 +358,12 @@ public class VentanaEstadisticas extends JDialog {
         gbc.gridx = 1; panel.add(lblPorcentaje, gbc);
         y++;
 
-        gbc.gridx = 0; gbc.gridy = y; panel.add(lblPrioridad, gbc);
-        gbc.gridx = 1; panel.add(lblBase, gbc);
+        gbc.gridx = 0; gbc.gridy = y; panel.add(lblTurnaround, gbc);
+        gbc.gridx = 1; panel.add(lblTrTs, gbc);
         y++;
 
-        gbc.gridx = 0; gbc.gridy = y; panel.add(lblAlcance, gbc);
+        gbc.gridx = 0; gbc.gridy = y; panel.add(lblBase, gbc);
+        gbc.gridx = 1; panel.add(lblAlcance, gbc);
 
         return panel;
     }
@@ -341,33 +386,57 @@ public class VentanaEstadisticas extends JDialog {
     private void mostrarDetalle(int fila) {
         if (lblId == null) return;   // seguridad
 
-        if (fila < 0 || fila >= procesos.size()) {
+        List<LineaProceso> lineas = estadisticas.getLineas();
+        if (fila < 0 || fila >= lineas.size()) {
             lblId.setText("ID: -");
             lblEstado.setText("Estado: -");
-            lblInicio.setText("Inicio (t): -");
-            lblFin.setText("Fin (t): -");
+            lblCpu.setText("CPU: -");
+            lblInicio.setText("Inicio: -");
+            lblFin.setText("Fin: -");
             lblDuracion.setText("Duracion: -");
             lblPorcentaje.setText("% del total: -");
+            lblTurnaround.setText("Turnaround: -");
+            lblTrTs.setText("Tr/Ts: -");
             lblPrioridad.setText("Prioridad: -");
             lblBase.setText("Base: -");
             lblAlcance.setText("Alcance: -");
             return;
         }
 
-        BCPTerminado pt = procesos.get(fila);
-        int dur = pt.getDuracionSimulada();
+        LineaProceso lp = lineas.get(fila);
+        int dur = lp.getDuracion();
+        int duracionTotal = estadisticas.getDuracionTotal();
         double porcentaje = (duracionTotal > 0 && dur > 0)
                 ? (dur * 100.0 / duracionTotal) : 0;
+        String cpuStr = (lp.getCpuAsignado() >= 0)
+                ? String.valueOf(lp.getCpuAsignado()) : "-";
 
-        lblId.setText("ID: " + pt.getId());
-        lblEstado.setText("Estado: " + pt.getEstado());
-        lblInicio.setText("Inicio (t): " + formatearTiempo(pt.getTiempoInicio()));
-        lblFin.setText("Fin (t): " + formatearTiempo(pt.getTiempoFin()));
+        lblId.setText("ID: " + lp.getId());
+        lblEstado.setText("Estado: EXIT");
+        lblCpu.setText("CPU: " + cpuStr);
+        lblInicio.setText("Inicio: " + formatearTiempo(lp.getInicio()));
+        lblFin.setText("Fin: " + formatearTiempo(lp.getFin()));
         lblDuracion.setText("Duracion: " + dur + " s (" + formatearDuracion(dur) + ")");
         lblPorcentaje.setText(String.format("%% del total: %.1f%%", porcentaje));
-        lblPrioridad.setText("Prioridad: " + pt.getPrioridad());
-        lblBase.setText("Base: " + pt.getBase());
-        lblAlcance.setText("Alcance: " + pt.getAlcance() + " instrucciones");
+        lblTurnaround.setText("Turnaround: " + lp.getTurnaround());
+        lblTrTs.setText(String.format("Tr/Ts: %.2f", lp.getTrTs()));
+        lblPrioridad.setText("Prioridad: " + lp.getPrioridad());
+        lblBase.setText("Base: " + lp.getBase());
+        lblAlcance.setText("Alcance: " + lp.getAlcance() + " instrucciones");
+    }
+
+    /* ==================== PESTAÑA: GANTT ==================== */
+
+    // Crea la pestaña del diagrama de Gantt.
+    private JPanel crearPestanaGantt() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(Paleta.FONDO_GENERAL);
+        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+
+        PanelDiagramaGantt gantt = new PanelDiagramaGantt(estadisticas);
+        panel.add(gantt, BorderLayout.CENTER);
+
+        return panel;
     }
 
     /* ==================== HELPERS ==================== */
@@ -382,7 +451,7 @@ public class VentanaEstadisticas extends JDialog {
         return "t=" + t;
     }
 
-    // Formatea una duración simulada en segundos como texto legible.
+    // Formatea una duracion simulada en segundos como texto legible.
     private String formatearDuracion(int segundos) {
         if (segundos < 0) return "-";
         int min = segundos / 60;

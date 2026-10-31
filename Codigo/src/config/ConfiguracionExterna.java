@@ -17,6 +17,11 @@ import java.util.Properties;
  *
  * Parametros FIJOS:
  *   - max_procesos = 5 por CPU.
+ *
+ * PROYECTO 2:
+ *   - Algoritmos validos: FCFS, SPN, SRT.
+ *   - Se iran agregando los demas (RR, HRRN, Selfish RR, Lottery,
+ *     Prioridad, Guaranteed, MLFQ) cuando se implementen.
  */
 public class ConfiguracionExterna {
 
@@ -33,21 +38,26 @@ public class ConfiguracionExterna {
 
     public static final int MAX_PROCESOS = 5;
 
+    // Algoritmos de CPU soportados actualmente.
+    private static final String[] ALGORITMOS_VALIDOS = {
+        "FCFS", "SPN", "SRT"
+    };
+
     // Valores mínimos absolutos (si el usuario pone menos, se corrige)
     public static final int MEMORIA_MINIMO = 1000;
     public static final int MEMORIA_MAXIMO = 65536;
     public static final int POSICIONES_POR_INSTRUCCION = 1;
-    
+
     public static final int DISCO_MINIMO = 512;
     public static final int DISCO_MAXIMO = 65536;
-    
+
     public static final int MAX_ARCHIVOS_MINIMO = 1;
     public static final int MAX_ARCHIVOS_MAXIMO = 100;
-    
+
     public static final int MEMORIA_VIRTUAL_MINIMO = 64;
     public static final int MEMORIA_VIRTUAL_MAXIMO = 65536;
     public static final int ESPACIO_ARCHIVOS_MINIMO = 64;
-    
+
     public static final int CPUS_MINIMO = 1;
     public static final int CPUS_MAXIMO = 5;
 
@@ -84,7 +94,7 @@ public class ConfiguracionExterna {
             maxArchivos    = parsear(props, "max_archivos",   maxArchivos);
             memoriaVirtual = parsear(props, "memoria_virtual", memoriaVirtual);
             cpus           = parsear(props, "cpus",           cpus);
-            
+
             // Leer el algoritmo (si no está, usa FCFS)
             algoritmoCPU = props.getProperty("algoritmo_cpu", ALGORITMO_CPU_DEFAULT).toUpperCase();
 
@@ -137,9 +147,8 @@ public class ConfiguracionExterna {
         }
 
         // ==== VALIDACION CRUZADA: Memoria vs CPUs ====
-        // Calcula cuanta memoria se necesita para N CPUs (5 BCPs por CPU).
         int memoriaMinimaParaCpus = calcularMemoriaMinimaParaCPUs(cpus);
-        
+
         if (memoria < memoriaMinimaParaCpus) {
             agregarCorreccion("memoria=" + memoria
                     + " no alcanza para " + cpus + " CPUs. Minimo requerido: "
@@ -149,7 +158,7 @@ public class ConfiguracionExterna {
 
         // ==== VALIDACION CRUZADA: Disco vs CPUs ====
         int discoMinimoParaCpus = calcularDiscoMinimoParaCPUs(cpus, maxArchivos, memoriaVirtual);
-        
+
         if (disco < discoMinimoParaCpus) {
             agregarCorreccion("disco=" + disco
                     + " no alcanza para " + cpus + " CPUs. Minimo requerido: "
@@ -216,7 +225,7 @@ public class ConfiguracionExterna {
         }
 
         // ==== ALGORITMO CPU ====
-        if (!algoritmoCPU.equals("FCFS") && !algoritmoCPU.equals("SPN")) {
+        if (!esAlgoritmoValido(algoritmoCPU)) {
             agregarCorreccion("algoritmo_cpu=" + algoritmoCPU
                     + " invalido. Usando " + ALGORITMO_CPU_DEFAULT + ".");
             algoritmoCPU = ALGORITMO_CPU_DEFAULT;
@@ -279,6 +288,24 @@ public class ConfiguracionExterna {
         }
     }
 
+    /* ==================== VALIDACION DE ALGORITMOS ==================== */
+
+    /**
+     * Indica si el algoritmo indicado es uno de los soportados por
+     * el sistema.
+     *
+     * @param algoritmo nombre del algoritmo (case-insensitive)
+     * @return true si es valido
+     */
+    private boolean esAlgoritmoValido(String algoritmo) {
+        if (algoritmo == null) return false;
+        String alg = algoritmo.trim().toUpperCase();
+        for (String valido : ALGORITMOS_VALIDOS) {
+            if (valido.equals(alg)) return true;
+        }
+        return false;
+    }
+
     /* ==================== FÓRMULAS DINÁMICAS ==================== */
 
     /**
@@ -289,16 +316,16 @@ public class ConfiguracionExterna {
     public static int calcularMemoriaMinimaParaCPUs(int cpus) {
         // Tamaño base del kernel para 10 archivos
         int tamanoListaTrabajos = MAX_ARCHIVOS_DEFAULT * Memoria.POSICIONES_POR_ENTRADA_LISTA_TRABAJOS;
-        
+
         // Cada CPU necesita 5 BCPs + 5 bloques en TablaMemoria
         int bcpsPorCpu = 5;
         int espacioPorCpu = bcpsPorCpu * (BCP.POSICIONES_REQUERIDAS + Memoria.POSICIONES_POR_BLOQUE_TABLA_MEMORIA);
-        
+
         int kernelMinimoReal = tamanoListaTrabajos + (cpus * espacioPorCpu);
-        
+
         // Como el kernel debe ser al menos el 30% de la memoria
         int memoriaMinima = (int) Math.ceil(kernelMinimoReal / PORCENTAJE_MINIMO_KERNEL);
-        
+
         // Redondear a un número más amigable (múltiplo de 100)
         return ((memoriaMinima + 99) / 100) * 100;
     }
@@ -311,10 +338,10 @@ public class ConfiguracionExterna {
     public static int calcularDiscoMinimoParaCPUs(int cpus, int maxArchivos, int memoriaVirtual) {
         int espacioIndices = maxArchivos * 4 * 2; // Índice ASM + Índice PROCESO
         int espacioOcupado = espacioIndices + memoriaVirtual;
-        
+
         // Necesitamos al menos 64 posiciones para archivos
         int discoMinimo = espacioOcupado + ESPACIO_ARCHIVOS_MINIMO;
-        
+
         return Math.max(discoMinimo, DISCO_MINIMO);
     }
 

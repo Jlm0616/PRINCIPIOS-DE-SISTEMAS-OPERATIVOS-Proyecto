@@ -7,6 +7,8 @@ import logica.ListaDeTrabajos;
 import logica.ParticionadorDinamico;
 import logica.ResultadoCarga;
 import logica.BCPTerminado;
+import logica.estadisticas.Estadisticas;
+import logica.estadisticas.LineaProceso;
 import logica.cpu.Nucleo;
 import modelo.BCP;
 import modelo.CPU;
@@ -628,35 +630,44 @@ public class VentanaPrincipal extends JFrame {
     /**
      * Imprime en el panel de pantalla el resumen de procesos terminados.
      *
-     * PROYECTO 2: los tiempos ahora son del RELOJ GLOBAL SIMULADO (int).
-     * Se muestran como "t=X" en lugar de "HH:mm".
+     * PROYECTO 2 - SOLID:
+     *  - Delega TODO el calculo a {@link Estadisticas}.
+     *  - Solo formatea e imprime (SRP).
+     *  - Columnas: Proceso, Inicio, Fin, Duracion, Turnaround, Tr/Ts.
      */
     private void imprimirEstadisticasEnPantalla() {
         List<BCPTerminado> terminados = gestor.getProcesosTerminados();
         if (terminados.isEmpty()) return;
 
+        // Delegacion del calculo (DIP: dependemos de la abstraccion Estadisticas)
+        Estadisticas stats = new Estadisticas(terminados);
+
         panelPantalla.agregarMensaje("");
-        panelPantalla.agregarMensaje(">> ========== ESTADISTICAS ==========");
-        panelPantalla.agregarMensaje(">> Proceso | Inicio | Fin    | Duracion");
-        panelPantalla.agregarMensaje(">> ----------------------------------");
+        panelPantalla.agregarMensaje(">> ================== ESTADISTICAS ==================");
+        panelPantalla.agregarMensaje(">> Algoritmo: " + algoritmoCPUActual);
+        panelPantalla.agregarMensaje("");
+        panelPantalla.agregarMensaje(">> Proceso | Inicio | Fin    | Duracion | Turnaround | Tr/Ts");
+        panelPantalla.agregarMensaje(">> ------------------------------------------------------");
 
-        int duracionTotal = 0;
-        for (BCPTerminado pt : terminados) {
-            int dur = pt.getDuracionSimulada();
-            if (dur > 0) duracionTotal += dur;
-
-            String inicio = formatearTiempo(pt.getTiempoInicio());
-            String fin    = formatearTiempo(pt.getTiempoFin());
+        // Iteramos la lista de DTOs ya calculados
+        for (LineaProceso lp : stats.getLineas()) {
+            String inicio = formatearTiempo(lp.getInicio());
+            String fin    = formatearTiempo(lp.getFin());
 
             panelPantalla.agregarMensaje(String.format(
-                    ">> ID %-4d | %-6s | %-6s | %d s",
-                    pt.getId(), inicio, fin, dur));
+                    ">> ID %-4d | %-6s | %-6s | %-8s | %-10d | %.2f",
+                    lp.getId(), inicio, fin, lp.getDuracion() + " s",
+                    lp.getTurnaround(), lp.getTrTs()));
         }
 
-        panelPantalla.agregarMensaje(">> ----------------------------------");
-        panelPantalla.agregarMensaje(">> Total de procesos: " + terminados.size());
-        panelPantalla.agregarMensaje(">> Duracion total:    " + duracionTotal + " s");
-        panelPantalla.agregarMensaje(">> ==================================");
+        panelPantalla.agregarMensaje(">> ------------------------------------------------------");
+        panelPantalla.agregarMensaje(">> Total de procesos:  " + stats.getCantidadProcesos());
+        panelPantalla.agregarMensaje(">> Duracion total:     " + stats.getDuracionTotal() + " s");
+        panelPantalla.agregarMensaje(">> Duracion promedio:  " + stats.getDuracionPromedio() + " s");
+        panelPantalla.agregarMensaje(">> Proceso mas largo:  " + stats.getDuracionMasLarga() + " s");
+        panelPantalla.agregarMensaje(">> Proceso mas corto:  " + stats.getDuracionMasCorta() + " s");
+        panelPantalla.agregarMensaje(String.format(">> Promedio Tr/Ts:     %.2f", stats.getPromedioTrTs()));
+        panelPantalla.agregarMensaje(">> ==================================================");
         panelPantalla.agregarMensaje("");
     }
 

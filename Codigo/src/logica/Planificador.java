@@ -13,6 +13,13 @@ import modelo.BCP;
  *
  * Trabaja sobre la ListaProcesos (procesos en RAM). La ListaDeTrabajos
  * (procesos en disco) se gestiona desde GestorProcesos.
+ *
+ * PROYECTO 2 - SOLID:
+ *  - Dependency Inversion (DIP): esta clase depende de la abstraccion
+ *    EstrategiaPlanificacion, no de implementaciones concretas.
+ *  - Single Responsibility (SRP): solo orquesta/delega, no decide.
+ *  - Open/Closed (OCP): agregar un nuevo planificador no requiere
+ *    tocar esta clase.
  */
 public class Planificador {
 
@@ -55,5 +62,35 @@ public class Planificador {
     // Devuelve el nombre legible de la estrategia activa.
     public String getNombreEstrategia() {
         return estrategia.getNombre();
+    }
+
+    /* ==================== APROPIATIVIDAD (Proyecto 2) ==================== */
+
+    /**
+     * Indica si la estrategia activa es apropiativa (puede expulsar
+     * al proceso que esta en la CPU).
+     *
+     * Delega a {@link EstrategiaPlanificacion#esApropiativo()}.
+     * FCFS y SPN retornan false (no apropiativos).
+     * SRT y RR retornaran true.
+     *
+     * @return true si la estrategia puede expulsar procesos en ejecucion
+     */
+    public boolean esApropiativo() {
+        return estrategia.esApropiativo();
+    }
+
+    /**
+     * Pregunta a la estrategia activa si el proceso en CPU debe ser
+     * expulsado por otro de la cola READY.
+     *
+     * Delega a {@link EstrategiaPlanificacion#debeExpulsar(BCP, ListaProcesos)}.
+     * Si la estrategia no es apropiativa, devuelve null (no expulsa).
+     *
+     * @param enCPU proceso actualmente en ejecucion
+     * @return el BCP que debe sustituir al de la CPU, o null si debe continuar
+     */
+    public BCP debeExpulsar(BCP enCPU) {
+        return estrategia.debeExpulsar(enCPU, listaProcesos);
     }
 }

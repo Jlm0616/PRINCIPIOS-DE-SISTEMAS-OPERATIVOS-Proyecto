@@ -1,6 +1,6 @@
 #Configuracion del Sistema - Proyecto 2 SO
-#Sat Oct 31 12:34:14 CST 2026
-algoritmo_cpu=SPN
+#Sat Oct 31 15:48:08 CST 2026
+algoritmo_cpu=SRT
 cpus=1
 disco=512
 kernel=909
