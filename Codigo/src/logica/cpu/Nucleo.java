@@ -25,10 +25,19 @@ public class Nucleo {
         this.ocupado = false;
     }
 
-    public void asignarProceso(int direccionBCP) {
-        this.despachador.despachar(direccionBCP);
+    /**
+     * Asigna un proceso a este nucleo.
+     *
+     * PROYECTO 2: recibe el relojGlobal para que el Despachador marque
+     * el inicio simulado del proceso (usado en estadisticas).
+     *
+     * @param direccionBCP direccion base del BCP a ejecutar
+     * @param relojGlobal  instante simulado actual
+     */
+    public void asignarProceso(int direccionBCP, int relojGlobal) {
+        this.despachador.despachar(direccionBCP, relojGlobal);
         this.ocupado = true;
-        
+
         BCP bcp = despachador.getBcpActual();
         if (bcp != null) {
             bcp.setCpuAsignado(idNucleo);
@@ -44,9 +53,9 @@ public class Nucleo {
         if (!ocupado) return false;
 
         boolean sigueVivo = despachador.ejecutarUnPaso();
-        
+
         BCP bcp = despachador.getBcpActual();
-        
+
         // Si terminó (EXIT), liberamos el núcleo
         if (bcp == null || bcp.getEstado() == EstadoProceso.EXIT) {
             if (bcp != null) {
@@ -56,13 +65,13 @@ public class Nucleo {
             ocupado = false;
             return false;
         }
-        
+
         // Si está BLOCKED, se queda en el núcleo pero el ejecutarPaso() devolvió false.
         // Retornamos true porque el proceso AÚN ocupa este núcleo (solo está esperando I/O).
         if (bcp.getEstado() == EstadoProceso.BLOCKED) {
             return true;
         }
-        
+
         return sigueVivo;
     }
 

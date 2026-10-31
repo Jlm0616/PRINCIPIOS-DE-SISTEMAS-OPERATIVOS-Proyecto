@@ -1,7 +1,5 @@
 package modelo;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Stack;
@@ -34,8 +32,8 @@ import java.util.Stack;
  *   17 = Pila[4]           ← FIN PILA
  *   18 = Base
  *   19 = Alcance
- *   20 = TiempoInicio
- *   21 = TiempoFin
+ *   20 = TiempoInicioSimulado  ← int (reloj global al despachar). -1 = no marcado.
+ *   21 = TiempoFinSimulado     ← int (reloj global al terminar).  -1 = no marcado.
  *   22 = CPU Asignado
  *   23 = ArchivoAbierto[0] ← INICIO ARCHIVOS (5 posiciones)
  *   24 = ArchivoAbierto[1]
@@ -55,6 +53,11 @@ import java.util.Stack;
  * Para compatibilidad con instrucciones aritmeticas (ADD, SUB, CMP),
  * se proveen los metodos getDxAsInt() y setDxAsInt().
  *
+ * IMPORTANTE (Proyecto 2): Los tiempos de inicio/fin usan el RELOJ
+ * GLOBAL SIMULADO (int), NO LocalDateTime. El centinela -1 indica
+ * "aun no marcado". Esto corrige el bug de estadisticas que mostraban
+ * tiempo real en lugar del tiempo simulado.
+ *
  * Hay dos formas de crear un BCP:
  *   1. new BCP(memoria, direccionBase, id, prioridad) → INICIALIZA los campos.
  *   2. new BCP(memoria, direccionBase)                → VISTA sobre BCP existente.
@@ -64,6 +67,9 @@ public class BCP {
     public static final int TAMANO_MAXIMO_PILA = 5;
     public static final int TAMANO_MAXIMO_ARCHIVOS = 5;
     public static final int POSICIONES_REQUERIDAS = 35;
+
+    /** Centinela que indica que un tiempo simulado aun no fue marcado. */
+    public static final int TIEMPO_NO_MARCADO = -1;
 
     public static final int OFF_ID             = 0;
     public static final int OFF_ESTADO         = 1;
@@ -132,8 +138,8 @@ public class BCP {
 
         setBase(0);
         setAlcance(0);
-        setTiempoInicio(null);
-        setTiempoFin(null);
+        setTiempoInicio(TIEMPO_NO_MARCADO);
+        setTiempoFin(TIEMPO_NO_MARCADO);
         setCpuAsignado(-1);
 
         // Limpiar las 5 posiciones de archivos abiertos
@@ -218,8 +224,8 @@ public class BCP {
 
         valores[OFF_BASE]           = 0;
         valores[OFF_ALCANCE]        = alcance;
-        valores[OFF_TIEMPO_INICIO]  = null;
-        valores[OFF_TIEMPO_FIN]     = null;
+        valores[OFF_TIEMPO_INICIO]  = TIEMPO_NO_MARCADO;   // ← int
+        valores[OFF_TIEMPO_FIN]     = TIEMPO_NO_MARCADO;   // ← int
         valores[OFF_CPU_ASIGNADO]   = -1;
 
         for (int i = 0; i < TAMANO_MAXIMO_ARCHIVOS; i++) {
@@ -403,26 +409,46 @@ public class BCP {
         }
     }
 
-    /* ============ TIEMPOS ============ */
+    /* ============ TIEMPOS (reloj global simulado) ============ */
 
-    // Registra el instante de inicio si aun no estaba marcado.
-    public void marcarInicio() {
-        if (getTiempoInicio() == null) {
-            setTiempoInicio(LocalDateTime.now());
+    /**
+     * Marca el instante de inicio si aun no estaba marcado.
+     * Se debe llamar cuando el proceso pasa a RUNNING (despacho).
+     *
+     * @param relojGlobal valor actual del reloj simulado del sistema
+     */
+    public void marcarInicio(int relojGlobal) {
+        if (getTiempoInicio() == TIEMPO_NO_MARCADO) {
+            setTiempoInicio(relojGlobal);
         }
     }
 
-    // Registra el instante de fin del proceso.
-    public void marcarFin() {
-        setTiempoFin(LocalDateTime.now());
+    /**
+     * Marca el instante de fin del proceso.
+     * Se debe llamar cuando el proceso pasa a EXIT.
+     *
+     * @param relojGlobal valor actual del reloj simulado del sistema
+     */
+    public void marcarFin(int relojGlobal) {
+        setTiempoFin(relojGlobal);
     }
 
-    // Devuelve la duracion en segundos, o -1 si falta inicio o fin.
-    public long getDuracionSegundos() {
-        LocalDateTime inicio = getTiempoInicio();
-        LocalDateTime fin = getTiempoFin();
-        if (inicio == null || fin == null) return -1;
-        return Duration.between(inicio, fin).getSeconds();
+    /**
+     * Devuelve la duracion simulada en unidades de reloj (segundos
+     * simulados), o -1 si falta inicio o fin.
+     */
+    public int getDuracionSimulada() {
+        int inicio = getTiempoInicio();
+        int fin = getTiempoFin();
+        if (inicio == TIEMPO_NO_MARCADO || fin == TIEMPO_NO_MARCADO) return -1;
+        return fin - inicio;
+    }
+
+    /**
+     * @return true si el proceso ya tiene marcado su tiempo de inicio.
+     */
+    public boolean tieneInicioMarcado() {
+        return getTiempoInicio() != TIEMPO_NO_MARCADO;
     }
 
     /* ============ AH / AL ============ */
@@ -496,8 +522,25 @@ public class BCP {
 
     public int getBase() { return (Integer) leer(OFF_BASE); }
     public int getAlcance() { return (Integer) leer(OFF_ALCANCE); }
-    public LocalDateTime getTiempoInicio() { return (LocalDateTime) leer(OFF_TIEMPO_INICIO); }
-    public LocalDateTime getTiempoFin() { return (LocalDateTime) leer(OFF_TIEMPO_FIN); }
+
+    /**
+     * Devuelve el reloj simulado en el que el proceso comenzo a ejecutarse.
+     * @return el instante simulado, o {@link #TIEMPO_NO_MARCADO} si aun no fue despachado.
+     */
+    public int getTiempoInicio() {
+        Object v = leer(OFF_TIEMPO_INICIO);
+        return (v != null) ? (Integer) v : TIEMPO_NO_MARCADO;
+    }
+
+    /**
+     * Devuelve el reloj simulado en el que el proceso termino.
+     * @return el instante simulado, o {@link #TIEMPO_NO_MARCADO} si aun no ha terminado.
+     */
+    public int getTiempoFin() {
+        Object v = leer(OFF_TIEMPO_FIN);
+        return (v != null) ? (Integer) v : TIEMPO_NO_MARCADO;
+    }
+
     public int getCpuAsignado() { return (Integer) leer(OFF_CPU_ASIGNADO); }
 
     public int getSiguienteBCP() { return (Integer) leer(OFF_SIGUIENTE_BCP); }
@@ -593,8 +636,23 @@ public class BCP {
     public void setPesoPendiente(int pesoPendiente) { escribir(OFF_PESO_PENDIENTE, pesoPendiente); }
     public void setBase(int base) { escribir(OFF_BASE, base); }
     public void setAlcance(int alcance) { escribir(OFF_ALCANCE, alcance); }
-    public void setTiempoInicio(LocalDateTime tiempoInicio) { escribir(OFF_TIEMPO_INICIO, tiempoInicio); }
-    public void setTiempoFin(LocalDateTime tiempoFin) { escribir(OFF_TIEMPO_FIN, tiempoFin); }
+
+    /**
+     * Asigna el instante simulado de inicio.
+     * @param tiempoInicio reloj global, o {@link #TIEMPO_NO_MARCADO}.
+     */
+    public void setTiempoInicio(int tiempoInicio) {
+        escribir(OFF_TIEMPO_INICIO, tiempoInicio);
+    }
+
+    /**
+     * Asigna el instante simulado de fin.
+     * @param tiempoFin reloj global, o {@link #TIEMPO_NO_MARCADO}.
+     */
+    public void setTiempoFin(int tiempoFin) {
+        escribir(OFF_TIEMPO_FIN, tiempoFin);
+    }
+
     public void setCpuAsignado(int cpuAsignado) { escribir(OFF_CPU_ASIGNADO, cpuAsignado); }
     public void setSiguienteBCP(int siguienteBCP) { escribir(OFF_SIGUIENTE_BCP, siguienteBCP); }
     public void setDireccion(int direccion) { escribir(OFF_DIRECCION, direccion); }

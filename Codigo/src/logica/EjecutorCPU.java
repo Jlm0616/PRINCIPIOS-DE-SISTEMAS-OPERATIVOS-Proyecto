@@ -20,6 +20,10 @@ import modelo.Disco;
  *   - PanelPantalla (via callback salidaPantalla) para el usuario.
  *
  * NOTA: en el Proyecto 2 ya no hay INT 09H (teclado).
+ *
+ * PROYECTO 2: el tiempo de fin simulado NO se marca aqui. Se marca en
+ * GestorProcesos.procesoTerminado(relojGlobal), que es quien conoce el
+ * reloj global. Aqui solo se cambia el estado a EXIT.
  */
 public class EjecutorCPU {
 
@@ -133,10 +137,12 @@ public class EjecutorCPU {
     /**
      * Termina el proceso con un error fatal (EXIT).
      * Envia el mensaje a consola Y a pantalla.
+     *
+     * NOTA: NO marca el fin simulado. Eso lo hace GestorProcesos
+     * con el relojGlobal al procesar la lista de terminados.
      */
     private void terminarConError(String mensaje) {
         bcp.setEstado(EstadoProceso.EXIT);
-        bcp.marcarFin();
         programaTerminado = true;
         bcp.actualizarDesdeCPU(cpu);
 
@@ -152,10 +158,12 @@ public class EjecutorCPU {
     /**
      * Termina el proceso normalmente (EXIT).
      * Envia el mensaje a consola Y a pantalla.
+     *
+     * NOTA: NO marca el fin simulado. Eso lo hace GestorProcesos
+     * con el relojGlobal al procesar la lista de terminados.
      */
     private void terminarNormal(String motivo) {
         bcp.setEstado(EstadoProceso.EXIT);
-        bcp.marcarFin();
         programaTerminado = true;
         bcp.actualizarDesdeCPU(cpu);
 

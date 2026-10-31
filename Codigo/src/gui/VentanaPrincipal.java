@@ -38,8 +38,6 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 
 import java.io.File;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -77,14 +75,11 @@ public class VentanaPrincipal extends JFrame {
     private JButton btnConfigurar;
     private JButton btnLimpiar;
     private JButton btnEstadisticas;
-    
+
     // Label para el reloj global
     private JLabel lblRelojGlobal;
 
     private SwingWorker<Integer, Void> workerAutomatico;
-
-    private static final DateTimeFormatter FORMATO_HORA =
-            DateTimeFormatter.ofPattern("HH:mm");
 
     // Crea la ventana principal, carga config y arma todo el sistema.
     public VentanaPrincipal() {
@@ -158,7 +153,7 @@ public class VentanaPrincipal extends JFrame {
         try {
             // El limite de procesos ahora es 5 por cada CPU configurada
             int maxProcesosReales = cantidadCPUsActual * 5;
-            
+
             memoria = new Memoria(tamanoMemoriaActual, limiteKernelActual,
                                   maxProcesosReales, maxArchivosActual);
             cpu = new CPU(limiteKernelActual);
@@ -176,10 +171,10 @@ public class VentanaPrincipal extends JFrame {
             gestor = new GestorProcesos(memoria, cpu, cantidadCPUsActual, algoritmoCPUActual,
                                         listaProcesos, listaDeTrabajos,
                                         particionador, disco);
-                                        
+
             // Reiniciar el balanceador al crear el sistema
             gestor.reiniciarBalanceador();
-            
+
         } catch (IllegalArgumentException e) {
             int kernelMinimoParaUno = Memoria.getTamanoKernelMinimo(1, maxArchivosActual);
 
@@ -277,7 +272,7 @@ public class VentanaPrincipal extends JFrame {
             panelPantalla.agregarMensaje(">> [DISCO] Proceso " + bcp.getId()
                     + " -> " + operacion + " \"" + bcp.getDx() + "\"");
         });
-        
+
         // Callback para actualizar tiempos de llegada
         panelProcesos.setOnTiemposLlegadaCambiados(tiempos -> {
             gestor.actualizarTiemposLlegada(tiempos);
@@ -433,10 +428,10 @@ public class VentanaPrincipal extends JFrame {
                     "No hay procesos para ejecutar.\nCarga un archivo .asm primero.");
             return;
         }
-        
+
         // Hacemos un paso del sistema (avanza el reloj global y ejecuta)
         gestor.ejecutarUnPaso();
-        
+
         // Refrescamos los paneles (incluyendo el reloj)
         refrescarTodo();
 
@@ -630,7 +625,12 @@ public class VentanaPrincipal extends JFrame {
                 + "-" + (tamanoDiscoActual - 1));
     }
 
-    // Imprime en el panel de pantalla el resumen de procesos terminados.
+    /**
+     * Imprime en el panel de pantalla el resumen de procesos terminados.
+     *
+     * PROYECTO 2: los tiempos ahora son del RELOJ GLOBAL SIMULADO (int).
+     * Se muestran como "t=X" en lugar de "HH:mm".
+     */
     private void imprimirEstadisticasEnPantalla() {
         List<BCPTerminado> terminados = gestor.getProcesosTerminados();
         if (terminados.isEmpty()) return;
@@ -640,16 +640,16 @@ public class VentanaPrincipal extends JFrame {
         panelPantalla.agregarMensaje(">> Proceso | Inicio | Fin    | Duracion");
         panelPantalla.agregarMensaje(">> ----------------------------------");
 
-        long duracionTotal = 0;
+        int duracionTotal = 0;
         for (BCPTerminado pt : terminados) {
-            long dur = pt.getDuracionSegundos();
+            int dur = pt.getDuracionSimulada();
             if (dur > 0) duracionTotal += dur;
 
-            String inicio = formatearHora(pt.getTiempoInicio());
-            String fin    = formatearHora(pt.getTiempoFin());
+            String inicio = formatearTiempo(pt.getTiempoInicio());
+            String fin    = formatearTiempo(pt.getTiempoFin());
 
             panelPantalla.agregarMensaje(String.format(
-                    ">> ID %-4d | %s  | %s | %d s",
+                    ">> ID %-4d | %-6s | %-6s | %d s",
                     pt.getId(), inicio, fin, dur));
         }
 
@@ -660,10 +660,14 @@ public class VentanaPrincipal extends JFrame {
         panelPantalla.agregarMensaje("");
     }
 
-    // Formatea un LocalDateTime como HH:mm, o "  -  " si es null.
-    private String formatearHora(LocalDateTime t) {
-        if (t == null) return "  -  ";
-        return t.format(FORMATO_HORA);
+    /**
+     * Formatea un instante simulado como "t=X", o "  -  " si no fue marcado.
+     *
+     * @param t instante del reloj simulado, o {@link BCPTerminado#TIEMPO_NO_MARCADO}
+     */
+    private String formatearTiempo(int t) {
+        if (t == BCPTerminado.TIEMPO_NO_MARCADO) return "  -  ";
+        return "t=" + t;
     }
 
     // Abre la ventana modal de estadísticas de procesos terminados.

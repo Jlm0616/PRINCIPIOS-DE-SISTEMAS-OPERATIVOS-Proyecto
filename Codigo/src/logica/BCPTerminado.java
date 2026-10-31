@@ -2,9 +2,6 @@ package logica;
 
 import modelo.EstadoProceso;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
-
 /**
  * Snapshot de un BCP terminado.
  *
@@ -16,15 +13,23 @@ import java.time.LocalDateTime;
  * proceso se preserva temporalmente para que programas auxiliares
  * (estadisticas, contabilidad) extraigan los datos que necesiten.
  *
- * Proyecto 2: se agregan campos para las estadisticas acumulativas
- * (tiempoLlegada, turnaround, trTs).
+ * Proyecto 2:
+ *  - Se agregan campos para las estadisticas acumulativas
+ *    (tiempoLlegada, turnaround, trTs).
+ *  - Los tiempos de inicio/fin ahora son INT (reloj global simulado),
+ *    NO LocalDateTime. Esto corrige el bug de estadisticas que
+ *    mostraban tiempo real en vez de tiempo simulado.
+ *  - El centinela -1 indica "no marcado".
  */
 public class BCPTerminado {
 
+    /** Centinela: el tiempo simulado aun no fue marcado. */
+    public static final int TIEMPO_NO_MARCADO = -1;
+
     private final int id;
     private final EstadoProceso estadoFinal;
-    private final LocalDateTime tiempoInicio;
-    private final LocalDateTime tiempoFin;
+    private final int tiempoInicio;
+    private final int tiempoFin;
     private final int base;
     private final int alcance;
     private final int prioridad;
@@ -36,7 +41,7 @@ public class BCPTerminado {
 
     // Crea un snapshot con los datos del proceso terminado.
     public BCPTerminado(int id, EstadoProceso estadoFinal,
-                        LocalDateTime tiempoInicio, LocalDateTime tiempoFin,
+                        int tiempoInicio, int tiempoFin,
                         int base, int alcance, int prioridad,
                         int tiempoLlegada, int turnaround, double trTs) {
         this.id = id;
@@ -51,54 +56,76 @@ public class BCPTerminado {
         this.trTs = trTs;
     }
 
-    public int getId() { 
-        return id; 
+    public int getId() {
+        return id;
     }
-    
-    public EstadoProceso getEstado() { 
-        return estadoFinal; 
+
+    public EstadoProceso getEstado() {
+        return estadoFinal;
     }
-    
-    public LocalDateTime getTiempoInicio() { 
-        return tiempoInicio; 
+
+    /**
+     * Devuelve el reloj simulado en que el proceso comenzo.
+     * @return el instante simulado, o {@link #TIEMPO_NO_MARCADO}.
+     */
+    public int getTiempoInicio() {
+        return tiempoInicio;
     }
-    
-    public LocalDateTime getTiempoFin() { 
-        return tiempoFin; 
+
+    /**
+     * Devuelve el reloj simulado en que el proceso termino.
+     * @return el instante simulado, o {@link #TIEMPO_NO_MARCADO}.
+     */
+    public int getTiempoFin() {
+        return tiempoFin;
     }
-    
-    public int getBase() { 
-        return base; 
+
+    public int getBase() {
+        return base;
     }
-    
-    public int getAlcance() { 
-        return alcance; 
+
+    public int getAlcance() {
+        return alcance;
     }
-    
-    public int getPrioridad() { 
-        return prioridad; 
+
+    public int getPrioridad() {
+        return prioridad;
     }
 
     // === NUEVOS GETTERS (Proyecto 2) ===
 
     // Devuelve el tiempo de llegada del proceso.
-    public int getTiempoLlegada() { 
-        return tiempoLlegada; 
+    public int getTiempoLlegada() {
+        return tiempoLlegada;
     }
 
     // Devuelve el turnaround (tiempo final - tiempo de llegada).
-    public int getTurnaround() { 
-        return turnaround; 
+    public int getTurnaround() {
+        return turnaround;
     }
 
     // Devuelve Tr/Ts (turnaround / service time).
-    public double getTrTs() { 
-        return trTs; 
+    public double getTrTs() {
+        return trTs;
     }
 
-    // Devuelve la duración del proceso en segundos, o -1 si faltan tiempos.
-    public long getDuracionSegundos() {
-        if (tiempoInicio == null || tiempoFin == null) return -1;
-        return Duration.between(tiempoInicio, tiempoFin).getSeconds();
+    /**
+     * Devuelve la duracion simulada (tiempoFin - tiempoInicio),
+     * o -1 si faltan tiempos.
+     */
+    public int getDuracionSimulada() {
+        if (tiempoInicio == TIEMPO_NO_MARCADO || tiempoFin == TIEMPO_NO_MARCADO) {
+            return -1;
+        }
+        return tiempoFin - tiempoInicio;
+    }
+
+    @Override
+    public String toString() {
+        return "BCPTerminado[id=" + id
+                + ", inicio=" + tiempoInicio
+                + ", fin=" + tiempoFin
+                + ", turnaround=" + turnaround
+                + ", trTs=" + String.format("%.2f", trTs) + "]";
     }
 }

@@ -32,6 +32,10 @@ import java.util.function.Consumer;
  * INDICE PROCESO del disco, NO al indice ASM.
  *
  * Los mensajes [DISCO] van a consola Y a PanelPantalla (via callback).
+ *
+ * PROYECTO 2: INT 20H ya NO marca el fin simulado del proceso. Ese
+ * marcado lo hace GestorProcesos.procesoTerminado(relojGlobal), que es
+ * quien conoce el reloj global. Aqui solo se devuelve TERMINADO.
  */
 public class Interrupciones {
 
@@ -65,9 +69,13 @@ public class Interrupciones {
 
     /* ==================== MANEJADORES ==================== */
 
-    // INT 20H: marca el fin del programa.
+    /**
+     * INT 20H: termina el programa.
+     *
+     * NOTA: NO marca el fin simulado. Eso lo hace GestorProcesos
+     * con el relojGlobal al procesar la lista de terminados.
+     */
     private ResultadoInterrupcion ejecutarFinPrograma(BCP bcp) {
-        bcp.marcarFin();
         return ResultadoInterrupcion.TERMINADO;
     }
 

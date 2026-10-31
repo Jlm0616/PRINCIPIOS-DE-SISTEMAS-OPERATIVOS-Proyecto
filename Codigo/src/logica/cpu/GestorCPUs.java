@@ -29,9 +29,18 @@ public class GestorCPUs {
         }
     }
 
-    // Nuevo método que delega al Balanceador
-    public void balancear(ListaProcesos listaProcesos, Planificador planificador) {
-        balanceador.asignarProcesos(nucleos, listaProcesos, planificador);
+    /**
+     * Delega al Balanceador la asignacion de procesos a los nucleos.
+     *
+     * PROYECTO 2: recibe el relojGlobal para propagarlo hasta el Despachador
+     * y que este marque el inicio simulado del proceso.
+     *
+     * @param listaProcesos cola de procesos READY
+     * @param planificador  estrategia de planificacion (FCFS, SPN, ...)
+     * @param relojGlobal   instante simulado actual
+     */
+    public void balancear(ListaProcesos listaProcesos, Planificador planificador, int relojGlobal) {
+        balanceador.asignarProcesos(nucleos, listaProcesos, planificador, relojGlobal);
     }
 
     public void reiniciarBalanceador() {
@@ -43,7 +52,7 @@ public class GestorCPUs {
             if (nucleo.estaOcupado()) {
                 BCP bcpAntes = nucleo.getBcpActual();
                 nucleo.ejecutarPaso();
-                
+
                 if (bcpAntes != null && bcpAntes.getEstado() == EstadoProceso.EXIT) {
                     procesosTerminados.add(bcpAntes);
                 }

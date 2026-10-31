@@ -25,8 +25,6 @@ import java.awt.Frame;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -36,16 +34,18 @@ import java.util.List;
  *   - Un resumen general (total, duracion total, promedio).
  *   - Una tabla con todos los procesos (ID, inicio, fin, duracion, %).
  *   - Un panel de detalle del proceso seleccionado.
+ *
+ * PROYECTO 2:
+ *  - Los tiempos (inicio, fin, duracion) son del RELOJ GLOBAL SIMULADO
+ *    (int), no LocalDateTime. Se muestran como "t=X" o "X s".
+ *  - El centinela -1 (TIEMPO_NO_MARCADO) se muestra como "-".
  */
 public class VentanaEstadisticas extends JDialog {
-
-    private static final DateTimeFormatter FORMATO_HORA =
-            DateTimeFormatter.ofPattern("HH:mm");
 
     private JTable tabla;
     private DefaultTableModel modelo;
     private List<BCPTerminado> procesos;
-    private long duracionTotal;
+    private int duracionTotal;
 
     // Panel de detalle
     private JLabel lblId;
@@ -71,11 +71,11 @@ public class VentanaEstadisticas extends JDialog {
         setLocationRelativeTo(propietario);
     }
 
-    // Calcula la suma de duraciones de todos los procesos terminados.
-    private long calcularDuracionTotal() {
-        long total = 0;
+    // Calcula la suma de duraciones simuladas de todos los procesos terminados.
+    private int calcularDuracionTotal() {
+        int total = 0;
         for (BCPTerminado pt : procesos) {
-            long d = pt.getDuracionSegundos();
+            int d = pt.getDuracionSimulada();
             if (d > 0) total += d;
         }
         return total;
@@ -150,17 +150,17 @@ public class VentanaEstadisticas extends JDialog {
         gbc.insets = new Insets(3, 10, 3, 10);
         gbc.weightx = 1;
 
-        long promedio = (procesos.size() > 0) ? duracionTotal / procesos.size() : 0;
-        long masLargo = 0;
-        long masCorto = Long.MAX_VALUE;
+        int promedio = (procesos.size() > 0) ? duracionTotal / procesos.size() : 0;
+        int masLargo = 0;
+        int masCorto = Integer.MAX_VALUE;
         for (BCPTerminado pt : procesos) {
-            long d = pt.getDuracionSegundos();
+            int d = pt.getDuracionSimulada();
             if (d > 0) {
                 if (d > masLargo) masLargo = d;
                 if (d < masCorto) masCorto = d;
             }
         }
-        if (masCorto == Long.MAX_VALUE) masCorto = 0;
+        if (masCorto == Integer.MAX_VALUE) masCorto = 0;
 
         JLabel l1 = crearLabelResumen("Total de procesos:", String.valueOf(procesos.size()));
         JLabel l2 = crearLabelResumen("Duracion total:", duracionTotal + " s");
@@ -201,7 +201,7 @@ public class VentanaEstadisticas extends JDialog {
         ));
 
         modelo = new DefaultTableModel(
-                new Object[]{"ID", "Inicio", "Fin", "Duracion", "% del total", "Prioridad"}, 0) {
+                new Object[]{"ID", "Inicio (t)", "Fin (t)", "Duracion", "% del total", "Prioridad"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -209,12 +209,13 @@ public class VentanaEstadisticas extends JDialog {
         };
 
         for (BCPTerminado pt : procesos) {
-            long dur = pt.getDuracionSegundos();
-            double porcentaje = (duracionTotal > 0) ? (dur * 100.0 / duracionTotal) : 0;
+            int dur = pt.getDuracionSimulada();
+            double porcentaje = (duracionTotal > 0 && dur > 0)
+                    ? (dur * 100.0 / duracionTotal) : 0;
             modelo.addRow(new Object[]{
                 "ID " + pt.getId(),
-                formatearHora(pt.getTiempoInicio()),
-                formatearHora(pt.getTiempoFin()),
+                formatearTiempo(pt.getTiempoInicio()),
+                formatearTiempo(pt.getTiempoFin()),
                 dur + " s",
                 String.format("%.1f%%", porcentaje),
                 String.valueOf(pt.getPrioridad())
@@ -292,8 +293,8 @@ public class VentanaEstadisticas extends JDialog {
 
         lblId        = crearLabelDetalle("ID", "-");
         lblEstado    = crearLabelDetalle("Estado", "-");
-        lblInicio    = crearLabelDetalle("Hora inicio", "-");
-        lblFin       = crearLabelDetalle("Hora fin", "-");
+        lblInicio    = crearLabelDetalle("Inicio (t)", "-");
+        lblFin       = crearLabelDetalle("Fin (t)", "-");
         lblDuracion  = crearLabelDetalle("Duracion", "-");
         lblPorcentaje= crearLabelDetalle("% del total", "-");
         lblPrioridad = crearLabelDetalle("Prioridad", "-");
@@ -343,8 +344,8 @@ public class VentanaEstadisticas extends JDialog {
         if (fila < 0 || fila >= procesos.size()) {
             lblId.setText("ID: -");
             lblEstado.setText("Estado: -");
-            lblInicio.setText("Hora inicio: -");
-            lblFin.setText("Hora fin: -");
+            lblInicio.setText("Inicio (t): -");
+            lblFin.setText("Fin (t): -");
             lblDuracion.setText("Duracion: -");
             lblPorcentaje.setText("% del total: -");
             lblPrioridad.setText("Prioridad: -");
@@ -354,13 +355,14 @@ public class VentanaEstadisticas extends JDialog {
         }
 
         BCPTerminado pt = procesos.get(fila);
-        long dur = pt.getDuracionSegundos();
-        double porcentaje = (duracionTotal > 0) ? (dur * 100.0 / duracionTotal) : 0;
+        int dur = pt.getDuracionSimulada();
+        double porcentaje = (duracionTotal > 0 && dur > 0)
+                ? (dur * 100.0 / duracionTotal) : 0;
 
         lblId.setText("ID: " + pt.getId());
         lblEstado.setText("Estado: " + pt.getEstado());
-        lblInicio.setText("Hora inicio: " + formatearHora(pt.getTiempoInicio()));
-        lblFin.setText("Hora fin: " + formatearHora(pt.getTiempoFin()));
+        lblInicio.setText("Inicio (t): " + formatearTiempo(pt.getTiempoInicio()));
+        lblFin.setText("Fin (t): " + formatearTiempo(pt.getTiempoFin()));
         lblDuracion.setText("Duracion: " + dur + " s (" + formatearDuracion(dur) + ")");
         lblPorcentaje.setText(String.format("%% del total: %.1f%%", porcentaje));
         lblPrioridad.setText("Prioridad: " + pt.getPrioridad());
@@ -370,17 +372,21 @@ public class VentanaEstadisticas extends JDialog {
 
     /* ==================== HELPERS ==================== */
 
-    // Formatea un LocalDateTime como HH:mm, o "-" si es null.
-    private String formatearHora(LocalDateTime t) {
-        if (t == null) return "-";
-        return t.format(FORMATO_HORA);
+    /**
+     * Formatea un instante simulado como "t=X", o "-" si no fue marcado.
+     *
+     * @param t instante del reloj simulado, o {@link BCPTerminado#TIEMPO_NO_MARCADO}
+     */
+    private String formatearTiempo(int t) {
+        if (t == BCPTerminado.TIEMPO_NO_MARCADO) return "-";
+        return "t=" + t;
     }
 
-    // Formatea una duración en segundos como texto legible.
-    private String formatearDuracion(long segundos) {
+    // Formatea una duración simulada en segundos como texto legible.
+    private String formatearDuracion(int segundos) {
         if (segundos < 0) return "-";
-        long min = segundos / 60;
-        long seg = segundos % 60;
+        int min = segundos / 60;
+        int seg = segundos % 60;
         if (min > 0) {
             return min + " min " + seg + " s";
         }

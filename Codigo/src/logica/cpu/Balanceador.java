@@ -15,12 +15,19 @@ public class Balanceador {
     /**
      * Asigna procesos a las CPUs disponibles respetando el orden estricto.
      * Utiliza el planificador para decidir QUÉ proceso debe ir a la CPU.
-     * 
-     * @param nucleos La lista de núcleos del sistema.
+     *
+     * PROYECTO 2: recibe el relojGlobal para que el Despachador (via Nucleo)
+     * pueda marcar el inicio simulado del proceso.
+     *
+     * @param nucleos       La lista de núcleos del sistema.
      * @param listaProcesos La cola de procesos en estado READY.
-     * @param planificador El planificador para saber a quién sacar de la cola.
+     * @param planificador  El planificador para saber a quién sacar de la cola.
+     * @param relojGlobal   Instante simulado actual.
      */
-    public void asignarProcesos(List<Nucleo> nucleos, ListaProcesos listaProcesos, Planificador planificador) {
+    public void asignarProcesos(List<Nucleo> nucleos,
+                                ListaProcesos listaProcesos,
+                                Planificador planificador,
+                                int relojGlobal) {
         int cantidadNucleos = nucleos.size();
         if (cantidadNucleos == 0) return;
 
@@ -41,15 +48,15 @@ public class Balanceador {
             BCP siguiente = planificador.seleccionarSiguiente();
             if (siguiente == null) break;
 
-            System.out.println("[Balanceador] Asignando proceso ID " + siguiente.getId() 
+            System.out.println("[Balanceador] Asignando proceso ID " + siguiente.getId()
                     + " a CPU " + nucleo.getIdNucleo());
-            
+
             // 2. Lo sacamos de la lista de procesos (el correcto, no el primero)
             listaProcesos.sacar(siguiente);
-            
-            // 3. Lo asignamos al núcleo
-            nucleo.asignarProceso(siguiente.getDireccionBase());
-            
+
+            // 3. Lo asignamos al núcleo (le pasamos el reloj para marcarInicio)
+            nucleo.asignarProceso(siguiente.getDireccionBase(), relojGlobal);
+
             // El despachador ya lo pone en RUNNING, pero por si acaso
             nucleo.getBcpActual().setEstado(EstadoProceso.RUNNING);
 

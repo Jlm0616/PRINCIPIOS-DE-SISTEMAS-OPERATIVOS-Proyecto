@@ -23,6 +23,12 @@ import java.util.function.Consumer;
  *
  * Implementa los pasos del cambio de contexto descritos por Stallings
  * (seccion 3.4, "Change of Process State").
+ *
+ * PROYECTO 2:
+ *  - despachar() recibe el relojGlobal para marcar el inicio simulado
+ *    del proceso (corrige estadisticas que mostraban tiempo real).
+ *  - El Despachador NO conoce el id del nucleo: setCpuAsignado lo hace
+ *    el Nucleo, que es quien sabe en que CPU corre el proceso.
  */
 public class Despachador {
 
@@ -55,8 +61,9 @@ public class Despachador {
      * Corresponde a los pasos 5 y 7 del cambio de contexto.
      *
      * @param direccionBCP direccion base del BCP a despachar
+     * @param relojGlobal  instante simulado actual (para marcar inicio)
      */
-    public void despachar(int direccionBCP) {
+    public void despachar(int direccionBCP, int relojGlobal) {
         if (direccionBCP < 0) {
             throw new IllegalArgumentException("Direccion de BCP invalida: " + direccionBCP);
         }
@@ -66,8 +73,8 @@ public class Despachador {
 
         // Paso 5: actualizar el BCP del proceso seleccionado
         bcp.setEstado(EstadoProceso.RUNNING);
-        bcp.setCpuAsignado(0);
-        bcp.marcarInicio();
+        // El cpuAsignado lo setea el Nucleo (el Despachador no conoce su id).
+        bcp.marcarInicio(relojGlobal);   // ← registra inicio simulado
 
         // Paso 7: restaurar el contexto del procesador
         bcp.actualizarHaciaCPU(cpu);
@@ -99,12 +106,12 @@ public class Despachador {
         // Si el proceso está BLOCKED esperando E/S, NO ejecutamos instrucción,
         // pero el proceso sigue en la CPU (el tiempo corre).
         if (ejecutorActual.getBcp().getEstado() == EstadoProceso.BLOCKED) {
-            return true; 
+            return true;
         }
 
         ejecutorActual.ejecutarSegundoDeCPU();
 
-        return true; 
+        return true;
     }
 
     /**
