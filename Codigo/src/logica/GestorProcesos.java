@@ -4,6 +4,7 @@ import logica.cpu.GestorCPUs;
 import logica.cpu.Nucleo;
 import logica.estadisticas.IntervaloEjecucion;
 import logica.planificacion.PlanificadorFCFS;
+import logica.planificacion.PlanificadorRR;
 import logica.planificacion.PlanificadorSPN;
 import logica.planificacion.PlanificadorSRT;
 import modelo.BCP;
@@ -28,14 +29,18 @@ import java.util.Map;
  *    turnaround como (relojGlobal - tiempoLlegada + 1), segun la
  *    convencion del curso.
  *  - El balanceo recibe el relojGlobal para propagarlo al Despachador.
- *  - SRT: en cada paso, si el planificador es apropiativo, revisa si
- *    algun proceso en READY debe expulsar al de la CPU.
- *  - DIAGRAMA DE GANTT: registra que proceso ejecuto en cada instante
- *    y en que CPU, para dibujar el diagrama al final.
+ *  - SRT: expulsa si un proceso en READY tiene menor tiempo restante.
+ *  - RR:  expulsa por quantum. La rotacion se hace ANTES del balanceo.
+ *    Regla especial:
+ *      * Si la cola estaba VACIA antes de las llegadas, primero se
+ *        agregan los nuevos, luego rota el de CPU (R4).
+ *      * Si la cola NO estaba vacia, primero rota, luego llegan (R5).
+ *  - DIAGRAMA DE GANTT: registra que proceso ejecuto en cada instante.
  */
 public class GestorProcesos {
 
     public static final int MAX_PROCESOS = 5;
+    public static final int QUANTUM_DEFAULT = 1;
 
     private static final int TARDANZA_CREAR     = 1;
     private static final int TARDANZA_ABRIR     = 1;
@@ -61,13 +66,21 @@ public class GestorProcesos {
     private List<BCP> procesosPendientesLlegada = new ArrayList<>();
 
     // === NUEVO (Diagrama Gantt): ejecuciones por proceso y CPU ===
-    /** Intervalos de ejecucion acumulados por id de proceso. */
     private Map<Integer, List<IntervaloEjecucion>> intervalosPorProceso = new HashMap<>();
-    /** CPU en la que corrio cada proceso (el ultimo nucleo donde estuvo). */
     private Map<Integer, Integer> cpuPorProceso = new HashMap<>();
+
+    // === NUEVO (RR): contador de quantum por proceso ===
+    /** Cuantos instantes lleva ejecutando el proceso en su turno actual. */
+    private Map<Integer, Integer> quantumConsumidoPorProceso = new HashMap<>();
+    /** Quantum configurado para RR. Se ignora para FCFS/SPN/SRT. */
+    private int quantumRR = QUANTUM_DEFAULT;
 
     private java.util.function.Consumer<String> salidaPantalla;
 
+    /**
+     * Constructor legacy (sin quantum). Usa QUANTUM_DEFAULT.
+     * Mantiene compatibilidad con codigo existente.
+     */
     public GestorProcesos(Memoria memoria,
                           CPU cpu,
                           int cantidadCPUs,
@@ -76,10 +89,32 @@ public class GestorProcesos {
                           ListaDeTrabajos listaDeTrabajos,
                           ParticionadorDinamico particionador,
                           Disco disco) {
+        this(memoria, cpu, cantidadCPUs, algoritmoCPU,
+             listaProcesos, listaDeTrabajos, particionador, disco,
+             QUANTUM_DEFAULT);
+    }
+
+    /**
+     * Constructor completo con quantum.
+     *
+     * @param quantumRR quantum para RR (>= 1). Se ignora para otros algoritmos.
+     */
+    public GestorProcesos(Memoria memoria,
+                          CPU cpu,
+                          int cantidadCPUs,
+                          String algoritmoCPU,
+                          ListaProcesos listaProcesos,
+                          ListaDeTrabajos listaDeTrabajos,
+                          ParticionadorDinamico particionador,
+                          Disco disco,
+                          int quantumRR) {
         this.memoria = memoria;
         this.listaProcesos = listaProcesos;
         this.listaDeTrabajos = listaDeTrabajos;
         this.particionador = particionador;
+
+        if (quantumRR < 1) quantumRR = QUANTUM_DEFAULT;
+        this.quantumRR = quantumRR;
 
         this.planificador = new Planificador(listaProcesos);
         // Seleccion del algoritmo segun la configuracion
@@ -87,6 +122,8 @@ public class GestorProcesos {
             this.planificador.setEstrategia(new PlanificadorSPN());
         } else if ("SRT".equals(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorSRT());
+        } else if ("RR".equals(algoritmoCPU)) {
+            this.planificador.setEstrategia(new PlanificadorRR(quantumRR));
         } else {
             this.planificador.setEstrategia(new PlanificadorFCFS());
         }
@@ -206,32 +243,55 @@ public class GestorProcesos {
         // 1. Avanzar el reloj global
         relojGlobal++;
 
-        // 2. Revisar si hay procesos pendientes que ya llegaron a su tiempo
+        // 2. Recolectar las llegadas (sin agregarlas a la cola todavia)
         List<BCP> llegadosAhora = new ArrayList<>();
         for (BCP bcp : procesosPendientesLlegada) {
             if (bcp.getTiempoLlegada() <= relojGlobal) {
-                listaProcesos.agregar(bcp);
                 llegadosAhora.add(bcp);
-                System.out.println("[RELOJ " + relojGlobal + "] Proceso " + bcp.getId() + " ha llegado.");
             }
         }
         procesosPendientesLlegada.removeAll(llegadosAhora);
 
-        // 3. EXPULSION APROPIATIVA (SRT / RR):
-        //    Si el planificador es apropiativo, revisar si algun proceso
-        //    en READY debe reemplazar al que esta en CPU.
-        //    Se hace ANTES del balanceo para que las CPUs expulsadas
-        //    queden libres y el balanceador pueda asignar los nuevos.
-        if (planificador.esApropiativo()) {
-            procesarExpulsiones();
+        // 3. Si NO es RR: agregar llegadas directo + expulsiones SRT
+        if (!esRR()) {
+            for (BCP bcp : llegadosAhora) {
+                listaProcesos.agregar(bcp);
+                System.out.println("[RELOJ " + relojGlobal + "] Proceso " + bcp.getId() + " ha llegado.");
+            }
+
+            if (planificador.esApropiativo()) {
+                procesarExpulsiones();
+            }
+        }
+
+        // 3.5. RR: rotacion por quantum CON orden especial de llegadas
+        if (esRR()) {
+            boolean colaVaciaAntes = listaProcesos.estaVacia();
+
+            if (colaVaciaAntes) {
+                // R4: cola vacia -> primero los nuevos, luego rota el de CPU
+                for (BCP bcp : llegadosAhora) {
+                    listaProcesos.agregar(bcp);
+                    System.out.println("[RELOJ " + relojGlobal + "] Proceso " + bcp.getId() + " ha llegado.");
+                }
+
+                procesarRotacionPorQuantum();
+
+            } else {
+                // R5: cola NO vacia -> primero rota el de CPU, luego llegan
+                procesarRotacionPorQuantum();
+
+                for (BCP bcp : llegadosAhora) {
+                    listaProcesos.agregar(bcp);
+                    System.out.println("[RELOJ " + relojGlobal + "] Proceso " + bcp.getId() + " ha llegado.");
+                }
+            }
         }
 
         // 4. Delegar la asignación al Gestor de CPUs (que usa el Balanceador)
         gestorCPUs.balancear(listaProcesos, planificador, relojGlobal);
 
         // 5. Capturar los RUNNING ANTES de ejecutar el paso.
-        //    Asi registramos el ultimo instante de los procesos que
-        //    terminan en este paso (antes de que pasen a EXIT).
         Map<Integer, Integer> ejecucionesEnPaso = new HashMap<>();
         for (Nucleo nucleo : gestorCPUs.getNucleos()) {
             if (nucleo.estaOcupado()) {
@@ -246,9 +306,15 @@ public class GestorProcesos {
         List<BCP> terminadosEnEstePaso = new ArrayList<>();
         gestorCPUs.ejecutarPasoEnTodos(terminadosEnEstePaso);
 
-        // 7. Registrar las ejecuciones capturadas en el paso 5 (Diagrama Gantt)
+        // 7. Registrar ejecuciones + incrementar contador de quantum (RR)
         for (Map.Entry<Integer, Integer> e : ejecucionesEnPaso.entrySet()) {
-            registrarEjecucion(e.getKey(), e.getValue(), relojGlobal);
+            int idProceso = e.getKey();
+            registrarEjecucion(idProceso, e.getValue(), relojGlobal);
+
+            if (esRR()) {
+                int c = quantumConsumidoPorProceso.getOrDefault(idProceso, 0) + 1;
+                quantumConsumidoPorProceso.put(idProceso, c);
+            }
         }
 
         // 8. Procesar los terminados
@@ -288,30 +354,21 @@ public class GestorProcesos {
     }
 
     /**
+     * @return true si la estrategia activa es Round Robin.
+     */
+    private boolean esRR() {
+        return "RR".equals(planificador.getNombreEstrategia());
+    }
+
+    /**
      * Registra que un proceso ejecuto en un instante y en una CPU.
-     *
-     * Acumula intervalos contiguos para eficiencia:
-     *   [1..3] + [4..7]  -> [1..7]
-     *
-     * PROYECTO 2 - SOLID:
-     *  - SRP: el GestorProcesos registra la ejecucion (concepto del
-     *    sistema), no el BCP ni el Nucleo.
-     *  - OCP: si se necesita registrar mas datos, se agrega al Map
-     *    correspondiente sin tocar el flujo.
-     *
-     * @param idProceso id del proceso que ejecuto
-     * @param idCpu     id del nucleo donde corrio
-     * @param t         instante simulado del reloj global
      */
     private void registrarEjecucion(int idProceso, int idCpu, int t) {
-        // Registrar la CPU (la ultima gana)
         cpuPorProceso.put(idProceso, idCpu);
 
-        // Acumular el intervalo [t..t] al proceso
         List<IntervaloEjecucion> lista =
                 intervalosPorProceso.computeIfAbsent(idProceso, k -> new ArrayList<>());
 
-        // Intentar fusionar con el ultimo intervalo si es contiguo
         if (!lista.isEmpty()) {
             IntervaloEjecucion ultimo = lista.get(lista.size() - 1);
             IntervaloEjecucion fusion = ultimo.fusionarSiContiguo(
@@ -325,19 +382,8 @@ public class GestorProcesos {
     }
 
     /**
-     * Recorre los nucleos ocupados y, si el planificador es apropiativo,
-     * pregunta si el proceso en CPU debe ser expulsado por otro de la
-     * cola READY.
-     *
-     * Si la respuesta no es null:
-     *   1. Expulsa al proceso actual del nucleo (vuelve a READY).
-     *   2. Lo re-encola en la ListaProcesos.
-     *
-     * El nuevo proceso sera despachado en el siguiente balanceo.
-     *
-     * PROYECTO 2 (SRT / RR): este metodo es la clave de la apropiacion.
-     * El Balanceador sigue siendo estricto, pero al liberar el nucleo
-     * antes del balanceo, el nuevo proceso puede entrar.
+     * SRT: recorre los nucleos ocupados y pregunta al planificador si
+     * el proceso en CPU debe ser expulsado por otro de la cola READY.
      */
     private void procesarExpulsiones() {
         for (Nucleo nucleo : gestorCPUs.getNucleos()) {
@@ -346,10 +392,6 @@ public class GestorProcesos {
             BCP enCPU = nucleo.getBcpActual();
             if (enCPU == null) continue;
             if (enCPU.getEstado() != EstadoProceso.RUNNING) continue;
-
-            // Solo expulsar procesos que aun tienen trabajo pendiente.
-            // Si tiempoRestante == 0, en realidad ya termino (raro, pero
-            // lo dejamos salir por la via normal de terminacion).
             if (enCPU.getTiempoRestante() <= 0) continue;
 
             BCP candidato = planificador.debeExpulsar(enCPU);
@@ -360,11 +402,41 @@ public class GestorProcesos {
                 + " por ID " + candidato.getId()
                 + " (rest=" + candidato.getTiempoRestante() + ")");
 
-            // 1. Expulsar al proceso actual (guarda contexto, READY)
             nucleo.expulsarProceso();
-
-            // 2. Re-encolar el BCP expulsado (vuelve a competir)
             listaProcesos.agregar(enCPU);
+        }
+    }
+
+    /**
+     * RR: recorre los nucleos ocupados y, si el proceso en CPU agoto
+     * su quantum, lo expulsa y lo reencola al final.
+     *
+     * No incrementa el contador: eso lo hace el paso 7 de ejecutarUnPaso().
+     * No aplica R6 (cola vacia -> no rota): siempre rota.
+     * Si la cola esta vacia, se expulsa y se reencola. El balanceo lo
+     * vuelve a elegir (es el unico). Efecto visible: el contador se
+     * resetea y el quantum arranca de nuevo.
+     */
+    private void procesarRotacionPorQuantum() {
+        for (Nucleo nucleo : gestorCPUs.getNucleos()) {
+            if (!nucleo.estaOcupado()) continue;
+
+            BCP enCPU = nucleo.getBcpActual();
+            if (enCPU == null) continue;
+            if (enCPU.getEstado() != EstadoProceso.RUNNING) continue;
+
+            int idProceso = enCPU.getId();
+            int consumido = quantumConsumidoPorProceso.getOrDefault(idProceso, 0);
+
+            // Si NO agoto el quantum, sigue en CPU.
+            if (consumido < quantumRR) continue;
+
+            System.out.println("[RR] Expulsando ID " + idProceso
+                + " (quantum " + consumido + "/" + quantumRR + " agotado)");
+
+            nucleo.expulsarProceso();
+            listaProcesos.agregar(enCPU);
+            quantumConsumidoPorProceso.put(idProceso, 0);
         }
     }
 
@@ -402,17 +474,6 @@ public class GestorProcesos {
 
     /* ==================== TERMINACIÓN ==================== */
 
-    /**
-     * Marca el proceso como terminado, calcula estadisticas usando el
-     * RELOJ GLOBAL SIMULADO y libera sus recursos.
-     *
-     * PROYECTO 2:
-     *  - El fin se marca con relojGlobal (int), no con LocalDateTime.
-     *  - turnaround = relojGlobal - tiempoLlegada + 1 (convencion del curso).
-     *  - Tr/Ts = turnaround / rafaga.
-     *  - Se pasan los intervalos de ejecucion y la CPU al snapshot
-     *    (para el diagrama de Gantt).
-     */
     public void procesoTerminado(BCP bcp) {
         bcp.setEstado(EstadoProceso.EXIT);
         bcp.marcarFin(relojGlobal);
@@ -420,13 +481,11 @@ public class GestorProcesos {
 
         int tiempoLlegada = bcp.getTiempoLlegada();
 
-        // Turnaround segun convencion del curso: TF - TL + 1
         int turnaround = relojGlobal - tiempoLlegada + 1;
         if (turnaround < 0) turnaround = 0;
 
         double trTs = (bcp.getRafaga() > 0) ? (double) turnaround / bcp.getRafaga() : 0.0;
 
-        // Recuperar intervalos y CPU del proceso
         int idProceso = bcp.getId();
         List<IntervaloEjecucion> intervalos =
                 intervalosPorProceso.getOrDefault(idProceso, new ArrayList<>());
@@ -439,6 +498,8 @@ public class GestorProcesos {
             cpu, intervalos
         );
         this.procesosTerminados.add(snapshot);
+
+        quantumConsumidoPorProceso.put(idProceso, 0);
 
         particionador.liberarParticion(bcp.getBase(), bcp.getAlcance(), bcp.getId());
         memoria.liberarBloqueUsuario(bcp.getBase(), bcp.getAlcance());
@@ -563,6 +624,7 @@ public class GestorProcesos {
     public List<BCP> getProcesosBloqueadosInput() { return new ArrayList<>(procesosBloqueadosInput); }
     public Disco getDisco() { return disco; }
     public ParticionadorDinamico getParticionador() { return particionador; }
+    public int getQuantumRR() { return quantumRR; }
 
     public void setSalidaPantalla(java.util.function.Consumer<String> callback) {
         this.salidaPantalla = callback;
@@ -584,7 +646,6 @@ public class GestorProcesos {
 
             BCP bcpEncontrado = null;
 
-            // 1. Buscar en núcleos
             for (Nucleo n : gestorCPUs.getNucleos()) {
                 if (n.estaOcupado()) {
                     BCP bcp = n.getBcpActual();
@@ -595,7 +656,6 @@ public class GestorProcesos {
                 }
             }
 
-            // 2. Buscar en la lista de listos
             if (bcpEncontrado == null) {
                 for (BCP bcp : listaProcesos.toList()) {
                     if (bcp.getId() == id) {
@@ -605,12 +665,9 @@ public class GestorProcesos {
                 }
             }
 
-            // 3. Actualizar y mover a pendientes si es necesario
             if (bcpEncontrado != null) {
                 bcpEncontrado.setTiempoLlegada(tiempo);
 
-                // Si el tiempo es mayor al reloj, lo sacamos de la lista de listos
-                // (a menos que ya esté en CPU, en cuyo caso se queda).
                 if (tiempo > relojGlobal) {
                     if (listaProcesos.contiene(bcpEncontrado)) {
                         listaProcesos.sacar(bcpEncontrado);

@@ -11,7 +11,16 @@ import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Frame;
 
+/**
+ * Ventana de configuracion del sistema.
+ *
+ * Pestañas: Memoria, Disco, CPUs.
+ * La pestaña de CPUs permite elegir el algoritmo y, si es RR,
+ * configurar el quantum.
+ */
 public class VentanaConfiguracion extends JDialog {
+
+    private static final int QUANTUM_DEFAULT = 1;
 
     private PanelConfigMemoria panelMemoria;
     private PanelConfigDisco panelDisco;
@@ -27,7 +36,9 @@ public class VentanaConfiguracion extends JDialog {
     private int tamanoSwap;
     private int cantidadCPUs;
     private String algoritmoCPU;
+    private int quantumRR;
 
+    /** Constructor legacy (sin quantum). Usa QUANTUM_DEFAULT. */
     public VentanaConfiguracion(Frame propietario,
                                  int tamanoMemoriaActual,
                                  int limiteKernelActual,
@@ -36,6 +47,21 @@ public class VentanaConfiguracion extends JDialog {
                                  int tamanoSwapActual,
                                  int cpusActual,
                                  String algoritmoActual) {
+        this(propietario, tamanoMemoriaActual, limiteKernelActual,
+             tamanoDiscoActual, maxArchivosActual, tamanoSwapActual,
+             cpusActual, algoritmoActual, QUANTUM_DEFAULT);
+    }
+
+    /** Constructor completo (con quantum). */
+    public VentanaConfiguracion(Frame propietario,
+                                 int tamanoMemoriaActual,
+                                 int limiteKernelActual,
+                                 int tamanoDiscoActual,
+                                 int maxArchivosActual,
+                                 int tamanoSwapActual,
+                                 int cpusActual,
+                                 String algoritmoActual,
+                                 int quantumActual) {
         super(propietario, "Configuracion", true);
         this.confirmado = false;
         this.tamanoMemoria = tamanoMemoriaActual;
@@ -45,10 +71,12 @@ public class VentanaConfiguracion extends JDialog {
         this.tamanoSwap = tamanoSwapActual;
         this.cantidadCPUs = cpusActual;
         this.algoritmoCPU = algoritmoActual;
+        this.quantumRR = (quantumActual >= 1) ? quantumActual : QUANTUM_DEFAULT;
 
         construirInterfaz(tamanoMemoriaActual, limiteKernelActual,
                           tamanoDiscoActual, maxArchivosActual,
-                          tamanoSwapActual, cpusActual, algoritmoActual);
+                          tamanoSwapActual, cpusActual, algoritmoActual,
+                          this.quantumRR);
         pack();
         setResizable(false);
         setLocationRelativeTo(propietario);
@@ -60,8 +88,9 @@ public class VentanaConfiguracion extends JDialog {
                                     int maxArchivosActual,
                                     int tamanoSwapActual,
                                     int cpusActual,
-                                    String algoritmoActual) {
-        
+                                    String algoritmoActual,
+                                    int quantumActual) {
+
         // Ambos paneles reciben cpusActual para calcular sus mínimos dinámicos
         panelMemoria = new PanelConfigMemoria(
                 tamanoMemoriaActual, limiteKernelActual,
@@ -70,22 +99,22 @@ public class VentanaConfiguracion extends JDialog {
         panelDisco = new PanelConfigDisco(
                 tamanoDiscoActual, maxArchivosActual, tamanoSwapActual, cpusActual);
 
-        panelCPU = new PanelConfigCPU(cpusActual, algoritmoActual);
+        panelCPU = new PanelConfigCPU(cpusActual, algoritmoActual, quantumActual);
 
         // === Callback para actualizar paneles cuando cambie el número de CPUs ===
         panelCPU.setOnCpusChanged(() -> {
             int nuevasCpus = panelCPU.getCantidadCPUs();
-            
+
             // Guardar valores actuales antes de recrear
             int memActual = tamanoMemoriaActual;
             int kernelActual = limiteKernelActual;
             int discoActual = tamanoDiscoActual;
             int archivosActual = maxArchivosActual;
             int swapActual = tamanoSwapActual;
-            
+
             try {
                 if (panelMemoria != null) {
-                    memActual = Integer.parseInt(panelMemoria.getTamanoMemoria() + "");
+                    memActual = panelMemoria.getTamanoMemoria();
                     kernelActual = panelMemoria.getLimiteKernel();
                 }
                 if (panelDisco != null) {
@@ -94,7 +123,6 @@ public class VentanaConfiguracion extends JDialog {
                     swapActual = panelDisco.getTamanoSwap();
                 }
             } catch (Exception ex) {
-                // Si hay error (campos vacíos), usar valores por defecto
                 memActual = config.ConfiguracionExterna.MEMORIA_DEFAULT;
                 discoActual = config.ConfiguracionExterna.DISCO_DEFAULT;
                 swapActual = config.ConfiguracionExterna.MEMORIA_VIRTUAL_DEFAULT;
@@ -110,7 +138,6 @@ public class VentanaConfiguracion extends JDialog {
             tabs.setTitleAt(0, "Memoria");
             tabs.setTitleAt(1, "Disco");
 
-            // Forzar el repintado para que se vea el cambio
             tabs.revalidate();
             tabs.repaint();
             pack();
@@ -172,10 +199,11 @@ public class VentanaConfiguracion extends JDialog {
         tamanoDisco = panelDisco.getTamanoDisco();
         this.maxArchivos = maxArchivos;
         tamanoSwap = panelDisco.getTamanoSwap();
-        
+
         cantidadCPUs = panelCPU.getCantidadCPUs();
         algoritmoCPU = panelCPU.getAlgoritmoCPU();
-        
+        quantumRR = panelCPU.getQuantum();
+
         confirmado = true;
         dispose();
     }
@@ -210,5 +238,12 @@ public class VentanaConfiguracion extends JDialog {
 
     public String getAlgoritmoCPU() {
         return algoritmoCPU;
+    }
+
+    /**
+     * @return quantum configurado para RR (>= 1).
+     */
+    public int getQuantum() {
+        return quantumRR;
     }
 }
