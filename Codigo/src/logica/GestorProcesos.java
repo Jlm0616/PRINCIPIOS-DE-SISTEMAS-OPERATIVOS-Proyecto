@@ -4,6 +4,7 @@ import logica.cpu.GestorCPUs;
 import logica.cpu.Nucleo;
 import logica.estadisticas.IntervaloEjecucion;
 import logica.planificacion.PlanificadorFCFS;
+import logica.planificacion.PlanificadorHRRN;
 import logica.planificacion.PlanificadorRR;
 import logica.planificacion.PlanificadorSPN;
 import logica.planificacion.PlanificadorSRT;
@@ -30,11 +31,9 @@ import java.util.Map;
  *    convencion del curso.
  *  - El balanceo recibe el relojGlobal para propagarlo al Despachador.
  *  - SRT: expulsa si un proceso en READY tiene menor tiempo restante.
- *  - RR:  expulsa por quantum. La rotacion se hace ANTES del balanceo.
- *    Regla especial:
- *      * Si la cola estaba VACIA antes de las llegadas, primero se
- *        agregan los nuevos, luego rota el de CPU (R4).
- *      * Si la cola NO estaba vacia, primero rota, luego llegan (R5).
+ *  - RR:  expulsa por quantum (reglas R4/R5 segun cola vacia o no).
+ *  - HRRN: elige por mayor (W+S)/S. Necesita el relojGlobal, que se
+ *    actualiza en cada paso con planificador.setRelojGlobal().
  *  - DIAGRAMA DE GANTT: registra que proceso ejecuto en cada instante.
  */
 public class GestorProcesos {
@@ -70,16 +69,13 @@ public class GestorProcesos {
     private Map<Integer, Integer> cpuPorProceso = new HashMap<>();
 
     // === NUEVO (RR): contador de quantum por proceso ===
-    /** Cuantos instantes lleva ejecutando el proceso en su turno actual. */
     private Map<Integer, Integer> quantumConsumidoPorProceso = new HashMap<>();
-    /** Quantum configurado para RR. Se ignora para FCFS/SPN/SRT. */
     private int quantumRR = QUANTUM_DEFAULT;
 
     private java.util.function.Consumer<String> salidaPantalla;
 
     /**
      * Constructor legacy (sin quantum). Usa QUANTUM_DEFAULT.
-     * Mantiene compatibilidad con codigo existente.
      */
     public GestorProcesos(Memoria memoria,
                           CPU cpu,
@@ -96,8 +92,6 @@ public class GestorProcesos {
 
     /**
      * Constructor completo con quantum.
-     *
-     * @param quantumRR quantum para RR (>= 1). Se ignora para otros algoritmos.
      */
     public GestorProcesos(Memoria memoria,
                           CPU cpu,
@@ -124,6 +118,8 @@ public class GestorProcesos {
             this.planificador.setEstrategia(new PlanificadorSRT());
         } else if ("RR".equals(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorRR(quantumRR));
+        } else if ("HRRN".equals(algoritmoCPU)) {
+            this.planificador.setEstrategia(new PlanificadorHRRN());
         } else {
             this.planificador.setEstrategia(new PlanificadorFCFS());
         }
@@ -161,9 +157,6 @@ public class GestorProcesos {
                 copiarAsmAArchivos(nombreArchivo, instrucciones);
                 siguienteId++;
 
-                // admitirEnParticion() YA encolo el BCP en listaProcesos.
-                // Aqui solo lo movemos a pendientes si aun no ha llegado
-                // (TL > relojGlobal). Si ya llego, se queda en la lista.
                 if (bcp.getTiempoLlegada() > relojGlobal) {
                     listaProcesos.sacar(bcp);
                     procesosPendientesLlegada.add(bcp);
@@ -242,6 +235,11 @@ public class GestorProcesos {
     public boolean ejecutarUnPaso() {
         // 1. Avanzar el reloj global
         relojGlobal++;
+
+        // 1.5. Propagar el reloj a la estrategia (HRRN lo necesita).
+        //      Se hace ANTES de balancear para que el calculo de HRR
+        //      use el instante correcto.
+        planificador.setRelojGlobal(relojGlobal);
 
         // 2. Recolectar las llegadas (sin agregarlas a la cola todavia)
         List<BCP> llegadosAhora = new ArrayList<>();
@@ -410,12 +408,6 @@ public class GestorProcesos {
     /**
      * RR: recorre los nucleos ocupados y, si el proceso en CPU agoto
      * su quantum, lo expulsa y lo reencola al final.
-     *
-     * No incrementa el contador: eso lo hace el paso 7 de ejecutarUnPaso().
-     * No aplica R6 (cola vacia -> no rota): siempre rota.
-     * Si la cola esta vacia, se expulsa y se reencola. El balanceo lo
-     * vuelve a elegir (es el unico). Efecto visible: el contador se
-     * resetea y el quantum arranca de nuevo.
      */
     private void procesarRotacionPorQuantum() {
         for (Nucleo nucleo : gestorCPUs.getNucleos()) {
@@ -428,7 +420,6 @@ public class GestorProcesos {
             int idProceso = enCPU.getId();
             int consumido = quantumConsumidoPorProceso.getOrDefault(idProceso, 0);
 
-            // Si NO agoto el quantum, sigue en CPU.
             if (consumido < quantumRR) continue;
 
             System.out.println("[RR] Expulsando ID " + idProceso

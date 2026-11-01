@@ -93,4 +93,22 @@ public class Planificador {
     public BCP debeExpulsar(BCP enCPU) {
         return estrategia.debeExpulsar(enCPU, listaProcesos);
     }
+
+    /* ==================== RELOJ (Proyecto 2) ==================== */
+
+    /**
+     * Actualiza el reloj global simulado de la estrategia activa.
+     *
+     * Solo las estrategias que dependen del reloj (ej. HRRN, que
+     * calcula W = relojGlobal - tiempoLlegada) lo usan. Las demas
+     * heredan el no-op del default.
+     *
+     * GestorProcesos llama a este metodo en cada paso, antes de
+     * balancear, para que la estrategia tenga el reloj actualizado.
+     *
+     * @param relojGlobal instante simulado actual
+     */
+    public void setRelojGlobal(int relojGlobal) {
+        estrategia.setRelojGlobal(relojGlobal);
+    }
 }

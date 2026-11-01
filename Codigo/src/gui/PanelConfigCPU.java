@@ -20,14 +20,14 @@ import java.awt.Insets;
  * Para RR, muestra un campo adicional de quantum.
  *
  * PROYECTO 2: algoritmos disponibles actualmente:
- *   FCFS, SPN, SRT, RR.
- * Se irán agregando los demás (HRRN, Selfish RR, Lottery,
- * Prioridad, Guaranteed, MLFQ).
+ *   FCFS, SPN, SRT, RR, HRRN.
+ * Se irán agregando los demás (Selfish RR, Lottery, Prioridad,
+ * Guaranteed, MLFQ).
  *
  * SOLID:
  *  - SRP: solo maneja la configuracion visual de CPUs y algoritmo.
- *  - OCP: agregar un nuevo algoritmo es solo agregar al array y,
- *    si necesita parametro extra, mostrar/ocultar su campo.
+ *  - OCP: agregar un nuevo algoritmo es solo agregar al array y, si
+ *    necesita parametro extra, mostrar/ocultar su campo.
  *  - ISP: expone solo getters concretos.
  */
 public class PanelConfigCPU extends JPanel {
@@ -100,7 +100,8 @@ public class PanelConfigCPU extends JPanel {
             "FCFS",
             "SPN",
             "SRT",
-            "RR"
+            "RR",
+            "HRRN"
         });
         comboAlgoritmo.setSelectedItem(algoritmoActual);
         comboAlgoritmo.setFont(Paleta.FUENTE_MONO);

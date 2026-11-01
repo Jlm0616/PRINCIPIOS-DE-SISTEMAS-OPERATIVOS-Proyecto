@@ -15,12 +15,12 @@ import modelo.BCP;
  * ListaDeTrabajos (procesos en disco) se gestiona aparte.
  *
  * PROYECTO 2:
- *  - Interface Segregation (ISP): los metodos apropiativos tienen
- *    implementacion por defecto, asi FCFS y SPN no necesitan
- *    cambiar ni una linea.
- *  - Open/Closed (OCP): agregar un nuevo planificador apropiativo
- *    (SRT, RR) solo requiere overridear esApropiativo() y
- *    debeExpulsar(), sin tocar la interfaz ni los existentes.
+ *  - Interface Segregation (ISP): los metodos apropiativos y el
+ *    setRelojGlobal tienen implementacion por defecto, asi FCFS,
+ *    SPN y los demas no necesitan cambiar ni una linea.
+ *  - Open/Closed (OCP): agregar un nuevo planificador que necesite
+ *    el reloj (HRRN) solo requiere overridear setRelojGlobal() y
+ *    leer el campo correspondiente, sin tocar la interfaz.
  *  - Liskov (LSP): cualquier EstrategiaPlanificacion es sustituible
  *    sin romper el sistema.
  */
@@ -58,9 +58,7 @@ public interface EstrategiaPlanificacion {
      *
      * Solo se invoca si {@link #esApropiativo()} devuelve true.
      *
-     * Por defecto devuelve null (nunca expulsa), lo que permite que
-     * las estrategias no apropiativas hereden este comportamiento
-     * sin implementar nada.
+     * Por defecto devuelve null (nunca expulsa).
      *
      * @param enCPU          proceso actualmente en ejecucion
      * @param listaProcesos  cola de procesos en READY
@@ -69,5 +67,24 @@ public interface EstrategiaPlanificacion {
      */
     default BCP debeExpulsar(BCP enCPU, ListaProcesos listaProcesos) {
         return null;
+    }
+
+    /**
+     * Actualiza el reloj global simulado de la estrategia.
+     *
+     * Solo las estrategias que dependen del reloj (ej. HRRN, que
+     * calcula el tiempo de espera W = relojGlobal - tiempoLlegada)
+     * necesitan overridear este metodo. Las demas lo heredan como
+     * no-op.
+     *
+     * GestorProcesos llama a este metodo en cada paso, antes de
+     * balancear, para que la estrategia tenga el reloj actualizado
+     * al momento de elegir.
+     *
+     * @param relojGlobal instante simulado actual
+     */
+    default void setRelojGlobal(int relojGlobal) {
+        // No-op por defecto. Solo HRRN (u otras que dependan del
+        // reloj) necesitan overridear.
     }
 }
