@@ -20,9 +20,8 @@ import java.awt.Insets;
  * Para RR, muestra un campo adicional de quantum.
  *
  * PROYECTO 2: algoritmos disponibles actualmente:
- *   FCFS, SPN, SRT, RR, HRRN.
- * Se irán agregando los demás (Selfish RR, Lottery, Prioridad,
- * Guaranteed, MLFQ).
+ *   FCFS, SPN, SRT, RR, HRRN, Prioridad.
+ * Se irán agregando los demás (Selfish RR, Lottery, Guaranteed, MLFQ).
  *
  * SOLID:
  *  - SRP: solo maneja la configuracion visual de CPUs y algoritmo.
@@ -101,7 +100,8 @@ public class PanelConfigCPU extends JPanel {
             "SPN",
             "SRT",
             "RR",
-            "HRRN"
+            "HRRN",
+            "Prioridad"
         });
         comboAlgoritmo.setSelectedItem(algoritmoActual);
         comboAlgoritmo.setFont(Paleta.FUENTE_MONO);

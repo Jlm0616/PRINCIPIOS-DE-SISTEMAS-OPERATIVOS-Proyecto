@@ -5,6 +5,7 @@ import logica.cpu.Nucleo;
 import logica.estadisticas.IntervaloEjecucion;
 import logica.planificacion.PlanificadorFCFS;
 import logica.planificacion.PlanificadorHRRN;
+import logica.planificacion.PlanificadorPrioridad;
 import logica.planificacion.PlanificadorRR;
 import logica.planificacion.PlanificadorSPN;
 import logica.planificacion.PlanificadorSRT;
@@ -27,13 +28,12 @@ import java.util.Map;
  * PROYECTO 2:
  *  - Todo el tiempo usa el RELOJ GLOBAL SIMULADO (int), no LocalDateTime.
  *  - procesoTerminado() marca el fin con el relojGlobal y calcula el
- *    turnaround como (relojGlobal - tiempoLlegada + 1), segun la
- *    convencion del curso.
+ *    turnaround como (relojGlobal - tiempoLlegada + 1).
  *  - El balanceo recibe el relojGlobal para propagarlo al Despachador.
  *  - SRT: expulsa si un proceso en READY tiene menor tiempo restante.
  *  - RR:  expulsa por quantum (reglas R4/R5 segun cola vacia o no).
- *  - HRRN: elige por mayor (W+S)/S. Necesita el relojGlobal, que se
- *    actualiza en cada paso con planificador.setRelojGlobal().
+ *  - HRRN: elige por mayor (W+S)/S. Necesita el relojGlobal.
+ *  - Prioridad: elige por MENOR prioridad numerica (Stallings).
  *  - DIAGRAMA DE GANTT: registra que proceso ejecuto en cada instante.
  */
 public class GestorProcesos {
@@ -120,6 +120,8 @@ public class GestorProcesos {
             this.planificador.setEstrategia(new PlanificadorRR(quantumRR));
         } else if ("HRRN".equals(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorHRRN());
+        } else if ("Prioridad".equals(algoritmoCPU)) {
+            this.planificador.setEstrategia(new PlanificadorPrioridad());
         } else {
             this.planificador.setEstrategia(new PlanificadorFCFS());
         }
@@ -237,8 +239,6 @@ public class GestorProcesos {
         relojGlobal++;
 
         // 1.5. Propagar el reloj a la estrategia (HRRN lo necesita).
-        //      Se hace ANTES de balancear para que el calculo de HRR
-        //      use el instante correcto.
         planificador.setRelojGlobal(relojGlobal);
 
         // 2. Recolectar las llegadas (sin agregarlas a la cola todavia)
@@ -668,5 +668,64 @@ public class GestorProcesos {
                 }
             }
         }
+    }
+
+    /**
+     * Actualiza la prioridad de los procesos segun la matriz recibida
+     * de la GUI.
+     *
+     * Formato de cada fila: {idProceso, prioridad}
+     *
+     * Busca el BCP en los nucleos, en la lista de listos, en pendientes
+     * y en terminados. Actualiza la prioridad. NO mueve procesos de
+     * cola (a diferencia de tiempoLlegada).
+     *
+     * @param prioridades matriz de {id, prioridad}
+     */
+    public void actualizarPrioridades(Object[][] prioridades) {
+        if (prioridades == null) return;
+
+        for (Object[] fila : prioridades) {
+            int id = (Integer) fila[0];
+            int prioridad = (Integer) fila[1];
+
+            BCP bcpEncontrado = buscarProcesoPorId(id);
+            if (bcpEncontrado != null) {
+                bcpEncontrado.setPrioridad(prioridad);
+            }
+        }
+    }
+
+    /**
+     * Busca un proceso por ID en todos los lugares posibles:
+     * nucleos, lista de listos, pendientes, bloqueados y terminados.
+     *
+     * @return el BCP, o null si no se encuentra
+     */
+    private BCP buscarProcesoPorId(int id) {
+        // 1. Nucleos
+        for (Nucleo n : gestorCPUs.getNucleos()) {
+            if (n.estaOcupado()) {
+                BCP bcp = n.getBcpActual();
+                if (bcp != null && bcp.getId() == id) return bcp;
+            }
+        }
+
+        // 2. Lista de listos
+        for (BCP bcp : listaProcesos.toList()) {
+            if (bcp.getId() == id) return bcp;
+        }
+
+        // 3. Pendientes de llegada
+        for (BCP bcp : procesosPendientesLlegada) {
+            if (bcp.getId() == id) return bcp;
+        }
+
+        // 4. Bloqueados de input
+        for (BCP bcp : procesosBloqueadosInput) {
+            if (bcp.getId() == id) return bcp;
+        }
+
+        return null;
     }
 }

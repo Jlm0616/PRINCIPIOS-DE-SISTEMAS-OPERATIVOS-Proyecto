@@ -277,9 +277,10 @@ public class VentanaPrincipal extends JFrame {
                     + " -> " + operacion + " \"" + bcp.getDx() + "\"");
         });
 
-        // Callback para actualizar tiempos de llegada
-        panelProcesos.setOnTiemposLlegadaCambiados(tiempos -> {
+        // Callback unificado: tiempos de llegada + prioridades
+        panelProcesos.setOnTiemposYPrioridadesCambiados((tiempos, prioridades) -> {
             gestor.actualizarTiemposLlegada(tiempos);
+            gestor.actualizarPrioridades(prioridades);
             refrescarTodo();
         });
     }

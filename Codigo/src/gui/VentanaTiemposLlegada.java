@@ -22,24 +22,43 @@ import java.awt.FlowLayout;
 import java.awt.Frame;
 import java.util.List;
 
+/**
+ * Ventana modal para configurar tiempos de llegada y prioridades.
+ *
+ * Columnas:
+ *   - Ubicacion (solo lectura, coloreada por CPU)
+ *   - ID (solo lectura)
+ *   - Rafaga (solo lectura)
+ *   - Tiempo Llegada (EDITABLE)
+ *   - Prioridad (EDITABLE)
+ *
+ * La columna Prioridad solo es relevante si el algoritmo activo es
+ * "Prioridad", pero se muestra siempre para no complicar la UI.
+ */
 public class VentanaTiemposLlegada extends JDialog {
+
+    private static final int COL_UBICACION = 0;
+    private static final int COL_ID        = 1;
+    private static final int COL_RAFAGA    = 2;
+    private static final int COL_LLEGADA   = 3;
+    private static final int COL_PRIORIDAD = 4;
 
     private JTable tabla;
     private DefaultTableModel modelo;
     private List<Nucleo> nucleos;
     private List<BCP> procesosEnCola;
-    
+
     private boolean confirmado = false;
 
     public VentanaTiemposLlegada(Frame propietario, List<Nucleo> nucleos, List<BCP> procesosEnCola) {
-        super(propietario, "Configurar Tiempos de Llegada", true);
+        super(propietario, "Configurar Tiempos de Llegada y Prioridades", true);
         this.nucleos = nucleos;
         this.procesosEnCola = procesosEnCola;
 
         construirInterfaz();
         pack();
-        setSize(600, 450);
-        setResizable(false);
+        setSize(700, 480);
+        setResizable(true);
         setLocationRelativeTo(propietario);
     }
 
@@ -49,16 +68,18 @@ public class VentanaTiemposLlegada extends JDialog {
         panelPrincipal.setBorder(new EmptyBorder(15, 15, 15, 15));
         setContentPane(panelPrincipal);
 
-        JLabel lblTitulo = new JLabel("Asignar Tiempos de Llegada (segundos)");
+        JLabel lblTitulo = new JLabel("Asignar Tiempos de Llegada y Prioridades");
         lblTitulo.setFont(Paleta.FUENTE_TITULO);
         lblTitulo.setForeground(Paleta.VERDE_OSCURO);
         panelPrincipal.add(lblTitulo, BorderLayout.NORTH);
 
-        // Columnas: Ubicación | ID | Ráfaga | Tiempo Llegada
-        modelo = new DefaultTableModel(new Object[]{"Ubicación", "ID", "Ráfaga", "Tiempo Llegada"}, 0) {
+        // Columnas: Ubicación | ID | Ráfaga | Tiempo Llegada | Prioridad
+        modelo = new DefaultTableModel(
+                new Object[]{"Ubicación", "ID", "Ráfaga", "Tiempo Llegada", "Prioridad"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return column == 3; // Solo Tiempo Llegada es editable
+                // Solo Tiempo Llegada y Prioridad son editables
+                return column == COL_LLEGADA || column == COL_PRIORIDAD;
             }
         };
 
@@ -68,10 +89,11 @@ public class VentanaTiemposLlegada extends JDialog {
                 BCP bcp = nucleo.getBcpActual();
                 if (bcp != null) {
                     modelo.addRow(new Object[]{
-                        "CPU " + nucleo.getIdNucleo(), 
-                        bcp.getId(), 
-                        bcp.getRafaga(), 
-                        bcp.getTiempoLlegada()
+                        "CPU " + nucleo.getIdNucleo(),
+                        bcp.getId(),
+                        bcp.getRafaga(),
+                        bcp.getTiempoLlegada(),
+                        bcp.getPrioridad()
                     });
                 }
             }
@@ -80,10 +102,11 @@ public class VentanaTiemposLlegada extends JDialog {
         // 2. Cargar procesos en la cola de listos (READY)
         for (BCP bcp : procesosEnCola) {
             modelo.addRow(new Object[]{
-                "En RAM (Cola)", 
-                bcp.getId(), 
-                bcp.getRafaga(), 
-                bcp.getTiempoLlegada()
+                "En RAM (Cola)",
+                bcp.getId(),
+                bcp.getRafaga(),
+                bcp.getTiempoLlegada(),
+                bcp.getPrioridad()
             });
         }
 
@@ -91,7 +114,7 @@ public class VentanaTiemposLlegada extends JDialog {
         tabla.setFont(Paleta.FUENTE_MONO);
         tabla.setRowHeight(25);
         tabla.getTableHeader().setFont(Paleta.FUENTE_LABEL_BOLD);
-        
+
         // Renderizador para pintar la columna "Ubicación" con el color de la CPU
         tabla.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
@@ -99,9 +122,9 @@ public class VentanaTiemposLlegada extends JDialog {
                     boolean isSelected, boolean hasFocus, int row, int column) {
                 Component c = super.getTableCellRendererComponent(
                         table, value, isSelected, hasFocus, row, column);
-                
+
                 if (!isSelected) {
-                    if (column == 0) { // Columna Ubicación
+                    if (column == COL_UBICACION) {
                         String ubicacion = value != null ? value.toString() : "";
                         if (ubicacion.startsWith("CPU ")) {
                             try {
@@ -132,9 +155,9 @@ public class VentanaTiemposLlegada extends JDialog {
         panelPrincipal.add(scroll, BorderLayout.CENTER);
 
         // Botones
-        JButton btnAceptar = new JButton("Aplicar Tiempos");
+        JButton btnAceptar = new JButton("Aplicar");
         JButton btnCancelar = new JButton("Cancelar");
-        
+
         btnAceptar.addActionListener(e -> confirmar());
         btnCancelar.addActionListener(e -> dispose());
 
@@ -147,14 +170,15 @@ public class VentanaTiemposLlegada extends JDialog {
     }
 
     private void confirmar() {
-        // Validar que todos los tiempos sean números
+        // Validar que TL y Prioridad sean números
         try {
             for (int i = 0; i < modelo.getRowCount(); i++) {
-                Integer.parseInt(modelo.getValueAt(i, 3).toString().trim());
+                Integer.parseInt(modelo.getValueAt(i, COL_LLEGADA).toString().trim());
+                Integer.parseInt(modelo.getValueAt(i, COL_PRIORIDAD).toString().trim());
             }
         } catch (NumberFormatException e) {
             javax.swing.JOptionPane.showMessageDialog(this,
-                    "Todos los tiempos de llegada deben ser números enteros.",
+                    "Los tiempos de llegada y las prioridades deben ser números enteros.",
                     "Error", javax.swing.JOptionPane.ERROR_MESSAGE);
             return;
         }
@@ -166,15 +190,31 @@ public class VentanaTiemposLlegada extends JDialog {
         return confirmado;
     }
 
-    // Devuelve un arreglo con los tiempos ingresados [ID, TiempoLlegada]
+    /**
+     * Devuelve un arreglo con los tiempos de llegada: [ID, TiempoLlegada].
+     */
     public Object[][] getTiempos() {
         Object[][] tiempos = new Object[modelo.getRowCount()][2];
         for (int i = 0; i < modelo.getRowCount(); i++) {
-            int id = Integer.parseInt(modelo.getValueAt(i, 1).toString()); // Columna 1 ahora es ID
-            int tiempo = Integer.parseInt(modelo.getValueAt(i, 3).toString().trim()); // Columna 3 es tiempo
+            int id = Integer.parseInt(modelo.getValueAt(i, COL_ID).toString());
+            int tiempo = Integer.parseInt(modelo.getValueAt(i, COL_LLEGADA).toString().trim());
             tiempos[i][0] = id;
             tiempos[i][1] = tiempo;
         }
         return tiempos;
+    }
+
+    /**
+     * Devuelve un arreglo con las prioridades: [ID, Prioridad].
+     */
+    public Object[][] getPrioridades() {
+        Object[][] prioridades = new Object[modelo.getRowCount()][2];
+        for (int i = 0; i < modelo.getRowCount(); i++) {
+            int id = Integer.parseInt(modelo.getValueAt(i, COL_ID).toString());
+            int prioridad = Integer.parseInt(modelo.getValueAt(i, COL_PRIORIDAD).toString().trim());
+            prioridades[i][0] = id;
+            prioridades[i][1] = prioridad;
+        }
+        return prioridades;
     }
 }

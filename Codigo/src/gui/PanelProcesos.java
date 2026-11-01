@@ -32,8 +32,17 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 
+/**
+ * Panel de procesos (RAM + Disco) y detalle del BCP.
+ *
+ * PROYECTO 2:
+ *  - Boton "Asignar Tiempos y Prioridades" abre VentanaTiemposLlegada.
+ *  - Al confirmar, dispara el callback BiConsumer con:
+ *      Object[][] tiempos     -> {id, tiempoLlegada}
+ *      Object[][] prioridades -> {id, prioridad}
+ */
 public class PanelProcesos extends JPanel {
 
     private JTable tablaProcesos;
@@ -45,8 +54,8 @@ public class PanelProcesos extends JPanel {
     private TitledBorder bordeBCP;
     private JButton btnTiemposLlegada;
 
-    // Callback para avisar a VentanaPrincipal que se cambiaron los tiempos
-    private Consumer<Object[][]> onTiemposLlegadaCambiados;
+    // Callback: (tiempos[][], prioridades[][])
+    private BiConsumer<Object[][], Object[][]> onTiemposYPrioridadesCambiados;
 
     private JLabel lblId;
     private JLabel lblPC;
@@ -68,16 +77,13 @@ public class PanelProcesos extends JPanel {
     }
 
     private void construirInterfaz() {
-        // GridBagLayout: el espacio extra de altura se reparte entre la tabla
-        // de procesos (arriba) y el detalle del BCP (abajo) segun weighty.
         setLayout(new GridBagLayout());
         setOpaque(false);
 
-        // ===== Panel superior: Tabla + Botón de tiempos =====
+        // ===== Panel superior: Tabla + Botón =====
         JPanel panelSuperior = new JPanel(new BorderLayout(5, 5));
         panelSuperior.setOpaque(false);
 
-        // Tabla de procesos
         modeloProcesos = new DefaultTableModel(new Object[]{"Proceso / CPU", "Estado"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -143,8 +149,8 @@ public class PanelProcesos extends JPanel {
         ));
         panelSuperior.add(scrollTabla, BorderLayout.CENTER);
 
-        // Botón de Tiempos de Llegada
-        btnTiemposLlegada = new JButton("Asignar Tiempos de Llegada");
+        // Botón unificado: Tiempos de Llegada + Prioridades
+        btnTiemposLlegada = new JButton("Asignar Tiempos y Prioridades");
         btnTiemposLlegada.setFont(Paleta.FUENTE_BOTON);
         btnTiemposLlegada.setBackground(Paleta.MORADO_ACENTO);
         btnTiemposLlegada.setForeground(Paleta.TEXTO_CLARO);
@@ -156,7 +162,6 @@ public class PanelProcesos extends JPanel {
         panelBotonTiempos.add(btnTiemposLlegada);
         panelSuperior.add(panelBotonTiempos, BorderLayout.SOUTH);
 
-        // Fila 0: tabla de procesos (crece junto con el BCP)
         GridBagConstraints gbcSup = new GridBagConstraints();
         gbcSup.gridx = 0;
         gbcSup.gridy = 0;
@@ -173,18 +178,18 @@ public class PanelProcesos extends JPanel {
         JPanel panelSelector = new JPanel(new BorderLayout());
         panelSelector.setOpaque(false);
         panelSelector.setBorder(new EmptyBorder(5, 5, 5, 5));
-        
+
         comboCPUs = new JComboBox<>();
         comboCPUs.setFont(Paleta.FUENTE_LABEL_BOLD);
         comboCPUs.addActionListener(e -> actualizarVistaBCP());
-        
+
         panelSelector.add(new JLabel("Ver BCP de: "), BorderLayout.WEST);
         panelSelector.add(comboCPUs, BorderLayout.CENTER);
         panelSur.add(panelSelector, BorderLayout.NORTH);
 
         panelDetalleBCP = crearPanelBCP();
         JScrollPane scrollBCP = new JScrollPane(panelDetalleBCP);
-        
+
         bordeBCP = BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(Paleta.MORADO_ACENTO, 2),
                 "Detalle del BCP",
@@ -196,7 +201,6 @@ public class PanelProcesos extends JPanel {
         scrollBCP.setBorder(bordeBCP);
         panelSur.add(scrollBCP, BorderLayout.CENTER);
 
-        // Fila 1: selector + detalle del BCP
         GridBagConstraints gbcSur = new GridBagConstraints();
         gbcSur.gridx = 0;
         gbcSur.gridy = 1;
@@ -207,7 +211,7 @@ public class PanelProcesos extends JPanel {
         add(panelSur, gbcSur);
     }
 
-    // Abre la ventana para asignar tiempos de llegada
+    // Abre la ventana para asignar tiempos de llegada y prioridades
     private void abrirVentanaTiempos() {
         if (nucleosActuales == null || nucleosActuales.isEmpty()) {
             JOptionPane.showMessageDialog(this,
@@ -216,28 +220,20 @@ public class PanelProcesos extends JPanel {
             return;
         }
 
-        // Crear una lista temporal con los BCPs en cola (READY) para pasársela a la ventana
-        List<BCP> procesosEnCola = new ArrayList<>();
-        // Nota: El PanelProcesos no tiene acceso directo a la ListaProcesos, 
-        // así que la ventana usará los procesos de los núcleos y de la RAM que recibe en actualizarLista
-        // Como esto se llama desde el botón, solo tiene los núcleos y lo que se guardó la última vez.
-        // Sin embargo, los procesos en RAM no se guardan en el panel.
-        // Solución: guardar una referencia a la lista de procesos temporal en el método actualizarLista.
-        // Lo haremos con una variable de clase.
-        
-        // Ventana modal
         VentanaTiemposLlegada ventana = new VentanaTiemposLlegada(
                 (java.awt.Frame) javax.swing.SwingUtilities.getWindowAncestor(this),
                 nucleosActuales,
-                listaProcesosTemporal // <-- Nueva variable
+                listaProcesosTemporal
         );
 
         ventana.setVisible(true);
 
         if (ventana.isConfirmado()) {
-            Object[][] tiempos = ventana.getTiempos();
-            if (onTiemposLlegadaCambiados != null) {
-                onTiemposLlegadaCambiados.accept(tiempos);
+            Object[][] tiempos     = ventana.getTiempos();
+            Object[][] prioridades = ventana.getPrioridades();
+
+            if (onTiemposYPrioridadesCambiados != null) {
+                onTiemposYPrioridadesCambiados.accept(tiempos, prioridades);
             }
         }
     }
@@ -251,7 +247,7 @@ public class PanelProcesos extends JPanel {
                                 ListaDeTrabajos listaDeTrabajos) {
         this.nucleosActuales = nucleos;
         this.listaProcesosTemporal = listaProcesos != null ? listaProcesos.toList() : new ArrayList<>();
-        
+
         modeloProcesos.setRowCount(0);
         Set<Integer> idsAgregados = new HashSet<>();
 
@@ -313,13 +309,18 @@ public class PanelProcesos extends JPanel {
                 comboCPUs.addItem("CPU " + n.getIdNucleo());
             }
         }
-        
+
         actualizarVistaBCP();
     }
 
-    // Setter para el callback
-    public void setOnTiemposLlegadaCambiados(Consumer<Object[][]> callback) {
-        this.onTiemposLlegadaCambiados = callback;
+    /**
+     * Configura el callback que se ejecuta al confirmar la ventana de
+     * tiempos y prioridades.
+     *
+     * @param callback recibe (Object[][] tiempos, Object[][] prioridades)
+     */
+    public void setOnTiemposYPrioridadesCambiados(BiConsumer<Object[][], Object[][]> callback) {
+        this.onTiemposYPrioridadesCambiados = callback;
     }
 
     private JPanel crearPanelBCP() {
@@ -409,10 +410,10 @@ public class PanelProcesos extends JPanel {
 
     private void actualizarVistaBCP() {
         if (nucleosActuales == null || comboCPUs.getSelectedIndex() < 0) return;
-        
+
         int index = comboCPUs.getSelectedIndex();
         BCP bcp = null;
-        
+
         if (bordeBCP != null) {
             bordeBCP.setTitleColor(Paleta.getColorCPU(index));
             bordeBCP.setBorder(BorderFactory.createLineBorder(Paleta.getColorCPU(index), 2));
@@ -422,7 +423,7 @@ public class PanelProcesos extends JPanel {
         if (index < nucleosActuales.size() && nucleosActuales.get(index).estaOcupado()) {
             bcp = nucleosActuales.get(index).getBcpActual();
         }
-        
+
         if (bcp == null) {
             lblId.setText("ID: -");
             lblEstado.setText("Estado: -");
