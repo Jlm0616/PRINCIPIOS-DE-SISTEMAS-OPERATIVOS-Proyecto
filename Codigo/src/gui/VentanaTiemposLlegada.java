@@ -20,20 +20,24 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Frame;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Ventana modal para configurar tiempos de llegada y prioridades.
  *
- * Columnas:
- *   - Ubicacion (solo lectura, coloreada por CPU)
- *   - ID (solo lectura)
- *   - Rafaga (solo lectura)
- *   - Tiempo Llegada (EDITABLE)
- *   - Prioridad (EDITABLE)
+ * Muestra:
+ *   - Procesos en CPU (Ubicacion = "CPU N").
+ *   - Procesos en RAM (Ubicacion = "En RAM (Cola)").
+ *   - Procesos pendientes de llegada (Ubicacion = "Espera TL=N").
  *
- * La columna Prioridad solo es relevante si el algoritmo activo es
- * "Prioridad", pero se muestra siempre para no complicar la UI.
+ * Columnas editables: Tiempo Llegada (col 3) y Prioridad (col 4).
+ *
+ * PROYECTO 2:
+ *  - Los pendientes (TL futuro) tambien aparecen, para que el usuario
+ *    pueda corregir su TL o prioridad antes de que lleguen.
+ *  - Si baja el TL a un valor <= relojGlobal, GestorProcesos lo mueve
+ *    automaticamente a READY en el proximo refresco.
  */
 public class VentanaTiemposLlegada extends JDialog {
 
@@ -43,21 +47,38 @@ public class VentanaTiemposLlegada extends JDialog {
     private static final int COL_LLEGADA   = 3;
     private static final int COL_PRIORIDAD = 4;
 
+    // Color para procesos pendientes (fondo amarillo claro)
+    private static final Color COLOR_PENDIENTE = new Color(0xFF, 0xF3, 0xCD);
+
     private JTable tabla;
     private DefaultTableModel modelo;
     private List<Nucleo> nucleos;
     private List<BCP> procesosEnCola;
+    private List<BCP> pendientesLlegada;
 
     private boolean confirmado = false;
 
-    public VentanaTiemposLlegada(Frame propietario, List<Nucleo> nucleos, List<BCP> procesosEnCola) {
+    /** Constructor legacy (sin pendientes). Mantiene compatibilidad. */
+    public VentanaTiemposLlegada(Frame propietario,
+                                 List<Nucleo> nucleos,
+                                 List<BCP> procesosEnCola) {
+        this(propietario, nucleos, procesosEnCola, new ArrayList<>());
+    }
+
+    /** Constructor completo (con pendientes). */
+    public VentanaTiemposLlegada(Frame propietario,
+                                 List<Nucleo> nucleos,
+                                 List<BCP> procesosEnCola,
+                                 List<BCP> pendientesLlegada) {
         super(propietario, "Configurar Tiempos de Llegada y Prioridades", true);
         this.nucleos = nucleos;
         this.procesosEnCola = procesosEnCola;
+        this.pendientesLlegada = (pendientesLlegada != null)
+                ? pendientesLlegada : new ArrayList<>();
 
         construirInterfaz();
         pack();
-        setSize(700, 480);
+        setSize(750, 520);
         setResizable(true);
         setLocationRelativeTo(propietario);
     }
@@ -78,12 +99,11 @@ public class VentanaTiemposLlegada extends JDialog {
                 new Object[]{"Ubicación", "ID", "Ráfaga", "Tiempo Llegada", "Prioridad"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                // Solo Tiempo Llegada y Prioridad son editables
                 return column == COL_LLEGADA || column == COL_PRIORIDAD;
             }
         };
 
-        // 1. Cargar procesos que están en las CPUs
+        // 1. Procesos en CPU
         for (Nucleo nucleo : nucleos) {
             if (nucleo.estaOcupado()) {
                 BCP bcp = nucleo.getBcpActual();
@@ -99,10 +119,21 @@ public class VentanaTiemposLlegada extends JDialog {
             }
         }
 
-        // 2. Cargar procesos en la cola de listos (READY)
+        // 2. Procesos en RAM (READY)
         for (BCP bcp : procesosEnCola) {
             modelo.addRow(new Object[]{
                 "En RAM (Cola)",
+                bcp.getId(),
+                bcp.getRafaga(),
+                bcp.getTiempoLlegada(),
+                bcp.getPrioridad()
+            });
+        }
+
+        // 3. Procesos pendientes de llegada (TL futuro)
+        for (BCP bcp : pendientesLlegada) {
+            modelo.addRow(new Object[]{
+                "Espera TL=" + bcp.getTiempoLlegada(),
                 bcp.getId(),
                 bcp.getRafaga(),
                 bcp.getTiempoLlegada(),
@@ -115,7 +146,7 @@ public class VentanaTiemposLlegada extends JDialog {
         tabla.setRowHeight(25);
         tabla.getTableHeader().setFont(Paleta.FUENTE_LABEL_BOLD);
 
-        // Renderizador para pintar la columna "Ubicación" con el color de la CPU
+        // Renderizador de la columna "Ubicación"
         tabla.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value,
@@ -135,7 +166,12 @@ public class VentanaTiemposLlegada extends JDialog {
                             } catch (Exception e) {
                                 c.setBackground(Color.WHITE);
                                 c.setForeground(Paleta.TEXTO_NORMAL);
+                                setFont(Paleta.FUENTE_MONO);
                             }
+                        } else if (ubicacion.startsWith("Espera TL=")) {
+                            c.setBackground(COLOR_PENDIENTE);
+                            c.setForeground(Paleta.TEXTO_NORMAL);
+                            setFont(Paleta.FUENTE_MONO);
                         } else {
                             c.setBackground(Color.WHITE);
                             c.setForeground(Paleta.TEXTO_NORMAL);
@@ -170,7 +206,6 @@ public class VentanaTiemposLlegada extends JDialog {
     }
 
     private void confirmar() {
-        // Validar que TL y Prioridad sean números
         try {
             for (int i = 0; i < modelo.getRowCount(); i++) {
                 Integer.parseInt(modelo.getValueAt(i, COL_LLEGADA).toString().trim());

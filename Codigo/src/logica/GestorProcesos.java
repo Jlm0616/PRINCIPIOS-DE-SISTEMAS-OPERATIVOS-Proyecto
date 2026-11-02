@@ -613,6 +613,7 @@ public class GestorProcesos {
     public ListaDeTrabajos getListaDeTrabajos() { return listaDeTrabajos; }
     public List<BCPTerminado> getProcesosTerminados() { return procesosTerminados; }
     public List<BCP> getProcesosBloqueadosInput() { return new ArrayList<>(procesosBloqueadosInput); }
+    public List<BCP> getProcesosPendientesLlegada() { return new ArrayList<>(procesosPendientesLlegada); }
     public Disco getDisco() { return disco; }
     public ParticionadorDinamico getParticionador() { return particionador; }
     public int getQuantumRR() { return quantumRR; }
@@ -635,36 +636,28 @@ public class GestorProcesos {
             int id = (Integer) t[0];
             int tiempo = (Integer) t[1];
 
-            BCP bcpEncontrado = null;
+            BCP bcpEncontrado = buscarProcesoPorId(id);
+            if (bcpEncontrado == null) continue;
 
-            for (Nucleo n : gestorCPUs.getNucleos()) {
-                if (n.estaOcupado()) {
-                    BCP bcp = n.getBcpActual();
-                    if (bcp != null && bcp.getId() == id) {
-                        bcpEncontrado = bcp;
-                        break;
-                    }
+            bcpEncontrado.setTiempoLlegada(tiempo);
+
+            // Si el proceso ESTA en la lista de listos y el nuevo TL es futuro:
+            // moverlo a pendientes.
+            if (tiempo > relojGlobal) {
+                if (listaProcesos.contiene(bcpEncontrado)) {
+                    listaProcesos.sacar(bcpEncontrado);
+                    procesosPendientesLlegada.add(bcpEncontrado);
+                    System.out.println("[RELOJ] Proceso " + id
+                        + " movido a pendientes (llega en t=" + tiempo + ")");
                 }
-            }
-
-            if (bcpEncontrado == null) {
-                for (BCP bcp : listaProcesos.toList()) {
-                    if (bcp.getId() == id) {
-                        bcpEncontrado = bcp;
-                        break;
-                    }
-                }
-            }
-
-            if (bcpEncontrado != null) {
-                bcpEncontrado.setTiempoLlegada(tiempo);
-
-                if (tiempo > relojGlobal) {
-                    if (listaProcesos.contiene(bcpEncontrado)) {
-                        listaProcesos.sacar(bcpEncontrado);
-                        procesosPendientesLlegada.add(bcpEncontrado);
-                        System.out.println("[RELOJ] Proceso " + id + " movido a pendientes (llega en t=" + tiempo + ")");
-                    }
+            } else {
+                // Si el proceso ESTA en pendientes y el nuevo TL ya paso:
+                // moverlo a la lista de listos.
+                if (procesosPendientesLlegada.contains(bcpEncontrado)) {
+                    procesosPendientesLlegada.remove(bcpEncontrado);
+                    listaProcesos.agregar(bcpEncontrado);
+                    System.out.println("[RELOJ] Proceso " + id
+                        + " movido a READY (TL=" + tiempo + " <= reloj=" + relojGlobal + ")");
                 }
             }
         }
@@ -673,12 +666,6 @@ public class GestorProcesos {
     /**
      * Actualiza la prioridad de los procesos segun la matriz recibida
      * de la GUI.
-     *
-     * Formato de cada fila: {idProceso, prioridad}
-     *
-     * Busca el BCP en los nucleos, en la lista de listos, en pendientes
-     * y en terminados. Actualiza la prioridad. NO mueve procesos de
-     * cola (a diferencia de tiempoLlegada).
      *
      * @param prioridades matriz de {id, prioridad}
      */
@@ -697,10 +684,7 @@ public class GestorProcesos {
     }
 
     /**
-     * Busca un proceso por ID en todos los lugares posibles:
-     * nucleos, lista de listos, pendientes, bloqueados y terminados.
-     *
-     * @return el BCP, o null si no se encuentra
+     * Busca un proceso por ID en todos los lugares posibles.
      */
     private BCP buscarProcesoPorId(int id) {
         // 1. Nucleos

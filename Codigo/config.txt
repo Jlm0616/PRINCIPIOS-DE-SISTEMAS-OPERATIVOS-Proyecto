@@ -1,7 +1,7 @@
 #Configuracion del Sistema - Proyecto 2 SO
-#Sat Oct 31 23:52:16 CST 2026
+#Sun Nov 01 00:10:00 CST 2026
 algoritmo_cpu=FCFS
-cpus=1
+cpus=3
 disco=512
 kernel=909
 max_archivos=5

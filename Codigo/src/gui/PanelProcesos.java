@@ -35,15 +35,20 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 
 /**
- * Panel de procesos (RAM + Disco) y detalle del BCP.
+ * Panel de procesos (RAM + Disco + Pendientes) y detalle del BCP.
  *
  * PROYECTO 2:
  *  - Boton "Asignar Tiempos y Prioridades" abre VentanaTiemposLlegada.
  *  - Al confirmar, dispara el callback BiConsumer con:
  *      Object[][] tiempos     -> {id, tiempoLlegada}
  *      Object[][] prioridades -> {id, prioridad}
+ *  - Los procesos pendientes de llegada (TL futuro) se muestran en la
+ *    tabla con estado NEW y fondo AMARILLO para poder corregirlos.
  */
 public class PanelProcesos extends JPanel {
+
+    // Color para procesos pendientes de llegada (TL futuro)
+    private static final Color COLOR_PENDIENTE = new Color(0xFF, 0xF3, 0xCD);
 
     private JTable tablaProcesos;
     private DefaultTableModel modeloProcesos;
@@ -56,6 +61,10 @@ public class PanelProcesos extends JPanel {
 
     // Callback: (tiempos[][], prioridades[][])
     private BiConsumer<Object[][], Object[][]> onTiemposYPrioridadesCambiados;
+
+    // Lista temporal para pasar a VentanaTiemposLlegada
+    private List<BCP> listaProcesosTemporal = new ArrayList<>();
+    private List<BCP> pendientesLlegadaTemporal = new ArrayList<>();
 
     private JLabel lblId;
     private JLabel lblPC;
@@ -127,6 +136,11 @@ public class PanelProcesos extends JPanel {
                             c.setBackground(row % 2 == 0 ? Color.WHITE : Paleta.FONDO_FILA_ALT);
                             c.setForeground(Paleta.TEXTO_NORMAL);
                         }
+                    } else if (texto.contains("(Espera TL=")) {
+                        // Proceso pendiente de llegada -> fondo amarillo
+                        c.setBackground(COLOR_PENDIENTE);
+                        c.setForeground(Paleta.TEXTO_NORMAL);
+                        setFont(Paleta.FUENTE_MONO);
                     } else {
                         c.setBackground(row % 2 == 0 ? Color.WHITE : Paleta.FONDO_FILA_ALT);
                         c.setForeground(Paleta.TEXTO_NORMAL);
@@ -141,7 +155,7 @@ public class PanelProcesos extends JPanel {
         scrollTabla.setPreferredSize(new Dimension(0, 200));
         scrollTabla.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(Paleta.VERDE_OSCURO, 2),
-                "Procesos (RAM + Disco)",
+                "Procesos (RAM + Disco + Pendientes)",
                 TitledBorder.DEFAULT_JUSTIFICATION,
                 TitledBorder.DEFAULT_POSITION,
                 Paleta.FUENTE_TITULO_PANEL,
@@ -223,7 +237,8 @@ public class PanelProcesos extends JPanel {
         VentanaTiemposLlegada ventana = new VentanaTiemposLlegada(
                 (java.awt.Frame) javax.swing.SwingUtilities.getWindowAncestor(this),
                 nucleosActuales,
-                listaProcesosTemporal
+                listaProcesosTemporal,
+                pendientesLlegadaTemporal
         );
 
         ventana.setVisible(true);
@@ -238,15 +253,25 @@ public class PanelProcesos extends JPanel {
         }
     }
 
-    // Variable temporal para guardar la lista de procesos en RAM
-    private List<BCP> listaProcesosTemporal = new ArrayList<>();
-
+    /**
+     * Actualiza la tabla de procesos y el detalle del BCP.
+     *
+     * @param listaProcesos           procesos en RAM (READY)
+     * @param nucleos                 nucleos con procesos en CPU
+     * @param procesosBloqueadosInput procesos BLOCKED esperando input
+     * @param listaDeTrabajos         procesos en swap
+     * @param procesosPendientesLlegada procesos esperando su TL (nuevo)
+     */
     public void actualizarLista(ListaProcesos listaProcesos,
                                 List<Nucleo> nucleos,
                                 List<BCP> procesosBloqueadosInput,
-                                ListaDeTrabajos listaDeTrabajos) {
+                                ListaDeTrabajos listaDeTrabajos,
+                                List<BCP> procesosPendientesLlegada) {
         this.nucleosActuales = nucleos;
         this.listaProcesosTemporal = listaProcesos != null ? listaProcesos.toList() : new ArrayList<>();
+        this.pendientesLlegadaTemporal = procesosPendientesLlegada != null
+                ? new ArrayList<>(procesosPendientesLlegada)
+                : new ArrayList<>();
 
         modeloProcesos.setRowCount(0);
         Set<Integer> idsAgregados = new HashSet<>();
@@ -280,7 +305,19 @@ public class PanelProcesos extends JPanel {
             }
         }
 
-        // 3. Procesos bloqueados
+        // 3. Procesos pendientes de llegada (NUEVO)
+        if (procesosPendientesLlegada != null) {
+            for (BCP bcp : procesosPendientesLlegada) {
+                if (idsAgregados.add(bcp.getId())) {
+                    modeloProcesos.addRow(new Object[]{
+                        "ID " + bcp.getId() + " (Espera TL=" + bcp.getTiempoLlegada() + ")",
+                        "NEW"
+                    });
+                }
+            }
+        }
+
+        // 4. Procesos bloqueados
         if (procesosBloqueadosInput != null) {
             for (BCP bcp : procesosBloqueadosInput) {
                 if (idsAgregados.add(bcp.getId())) {
@@ -292,7 +329,7 @@ public class PanelProcesos extends JPanel {
             }
         }
 
-        // 4. Lista de trabajos (swap)
+        // 5. Lista de trabajos (swap)
         if (listaDeTrabajos != null) {
             for (Object[] trabajo : listaDeTrabajos.toList()) {
                 String nombre = (trabajo[0] != null) ? trabajo[0].toString() : "(?)";
@@ -316,8 +353,6 @@ public class PanelProcesos extends JPanel {
     /**
      * Configura el callback que se ejecuta al confirmar la ventana de
      * tiempos y prioridades.
-     *
-     * @param callback recibe (Object[][] tiempos, Object[][] prioridades)
      */
     public void setOnTiemposYPrioridadesCambiados(BiConsumer<Object[][], Object[][]> callback) {
         this.onTiemposYPrioridadesCambiados = callback;

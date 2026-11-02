@@ -729,7 +729,8 @@ public class VentanaPrincipal extends JFrame {
                 gestor.getListaProcesos(),
                 gestor.getGestorCPUs().getNucleos(),
                 gestor.getProcesosBloqueadosInput(),
-                gestor.getListaDeTrabajos());
+                gestor.getListaDeTrabajos(),
+                gestor.getProcesosPendientesLlegada());   // ← NUEVO
 
         panelMemoria.actualizar(memoria, irsPorCPU);
         panelDisco.actualizar(disco);
