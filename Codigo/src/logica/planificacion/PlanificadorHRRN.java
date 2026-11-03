@@ -14,7 +14,8 @@ import java.util.List;
  *   RR = (W + S) / S
  *
  * donde:
- *   W = tiempo de espera = relojGlobal - tiempoLlegada
+ *   W = tiempo de espera = (relojGlobal - 1) - tiempoLlegada
+ *       (la decision se toma al inicio del paso, en relojGlobal - 1)
  *   S = tiempo de servicio = rafaga original del proceso
  *
  * A diferencia de SPN (que solo mira la rafaga), HRRN pondera el
@@ -111,7 +112,7 @@ public class PlanificadorHRRN implements EstrategiaPlanificacion {
      *   RR = (W + S) / S
      *
      * donde:
-     *   W = relojGlobalActual - bcp.getTiempoLlegada()   (espera)
+     *   W = (relojGlobalActual - 1) - bcp.getTiempoLlegada()   (espera)
      *   S = bcp.getRafaga()                              (servicio)
      *
      * Si la rafaga es 0, se asume 1 para evitar division por cero.
@@ -125,7 +126,9 @@ public class PlanificadorHRRN implements EstrategiaPlanificacion {
         int s = bcp.getRafaga();
         if (s <= 0) s = 1;   // evitar division por cero
 
-        int w = relojGlobalActual - bcp.getTiempoLlegada();
+        // La decision se toma al inicio del paso, en relojGlobal-1
+        // (el paso N cubre el intervalo de N-1 a N).
+        int w = (relojGlobalActual - 1) - bcp.getTiempoLlegada();
         if (w < 0) w = 0;    // proceso que aun no ha llegado
 
         return (double) (w + s) / s;

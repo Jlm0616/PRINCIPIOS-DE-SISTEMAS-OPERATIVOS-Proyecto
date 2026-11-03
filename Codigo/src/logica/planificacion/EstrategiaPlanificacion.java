@@ -73,7 +73,7 @@ public interface EstrategiaPlanificacion {
      * Actualiza el reloj global simulado de la estrategia.
      *
      * Solo las estrategias que dependen del reloj (ej. HRRN, que
-     * calcula el tiempo de espera W = relojGlobal - tiempoLlegada)
+     * calcula el tiempo de espera W = (relojGlobal - 1) - tiempoLlegada)
      * necesitan overridear este metodo. Las demas lo heredan como
      * no-op.
      *

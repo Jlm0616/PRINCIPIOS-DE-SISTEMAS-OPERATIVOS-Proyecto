@@ -28,8 +28,11 @@ import java.util.Map;
  *
  * PROYECTO 2:
  *  - Todo el tiempo usa el RELOJ GLOBAL SIMULADO (int), no LocalDateTime.
+ *  - Convencion de tiempo (la del libro, Stallings tabla 9.5): el paso N
+ *    cubre el intervalo de N-1 a N, que es la columna N del Gantt. Un
+ *    proceso que llega en t puede ejecutarse desde el paso t+1.
  *  - procesoTerminado() marca el fin con el relojGlobal y calcula el
- *    turnaround como (relojGlobal - tiempoLlegada + 1).
+ *    turnaround como (relojGlobal - tiempoLlegada).
  *  - El balanceo recibe el relojGlobal para propagarlo al Despachador.
  *  - SRT: expulsa si un proceso en READY tiene menor tiempo restante.
  *  - RR:  expulsa por quantum (reglas R4/R5 segun cola vacia o no).
@@ -273,10 +276,14 @@ public class GestorProcesos {
         // 1.5. Propagar el reloj a la estrategia (HRRN lo necesita).
         planificador.setRelojGlobal(relojGlobal);
 
-        // 2. Recolectar las llegadas (sin agregarlas a la cola todavia)
+        // 2. Recolectar las llegadas (sin agregarlas a la cola todavia).
+        //    Este paso cubre el intervalo de relojGlobal-1 a relojGlobal:
+        //    entra quien llego a mas tardar en relojGlobal-1. Con "<=" un
+        //    proceso que llega en t competiria por el intervalo de t-1 a t,
+        //    un segundo antes de llegar.
         List<BCP> llegadosAhora = new ArrayList<>();
         for (BCP bcp : procesosPendientesLlegada) {
-            if (bcp.getTiempoLlegada() <= relojGlobal) {
+            if (bcp.getTiempoLlegada() < relojGlobal) {
                 llegadosAhora.add(bcp);
             }
         }
@@ -556,7 +563,9 @@ public class GestorProcesos {
 
         int tiempoLlegada = bcp.getTiempoLlegada();
 
-        int turnaround = relojGlobal - tiempoLlegada + 1;
+        // Tr = fin - llegada. relojGlobal ya es el instante de fin: el
+        // proceso termino al cerrar el intervalo de relojGlobal-1 a relojGlobal.
+        int turnaround = relojGlobal - tiempoLlegada;
         if (turnaround < 0) turnaround = 0;
 
         double trTs = (bcp.getRafaga() > 0) ? (double) turnaround / bcp.getRafaga() : 0.0;
