@@ -7,6 +7,7 @@ import logica.planificacion.PlanificadorFCFS;
 import logica.planificacion.PlanificadorHRRN;
 import logica.planificacion.PlanificadorPrioridad;
 import logica.planificacion.PlanificadorRR;
+import logica.planificacion.PlanificadorSelfishRR;
 import logica.planificacion.PlanificadorSPN;
 import logica.planificacion.PlanificadorSRT;
 import modelo.BCP;
@@ -40,6 +41,8 @@ public class GestorProcesos {
 
     public static final int MAX_PROCESOS = 5;
     public static final int QUANTUM_DEFAULT = 1;
+    public static final int SRR_A_DEFAULT = 2;
+    public static final int SRR_B_DEFAULT = 1;
 
     private static final int TARDANZA_CREAR     = 1;
     private static final int TARDANZA_ABRIR     = 1;
@@ -91,7 +94,8 @@ public class GestorProcesos {
     }
 
     /**
-     * Constructor completo con quantum.
+     * Constructor con quantum (sin parametros de Selfish RR).
+     * Usa SRR_A_DEFAULT y SRR_B_DEFAULT.
      */
     public GestorProcesos(Memoria memoria,
                           CPU cpu,
@@ -102,6 +106,28 @@ public class GestorProcesos {
                           ParticionadorDinamico particionador,
                           Disco disco,
                           int quantumRR) {
+        this(memoria, cpu, cantidadCPUs, algoritmoCPU,
+             listaProcesos, listaDeTrabajos, particionador, disco,
+             quantumRR, SRR_A_DEFAULT, SRR_B_DEFAULT);
+    }
+
+    /**
+     * Constructor completo: quantum y parametros de Selfish RR.
+     *
+     * @param srrA cuanto sube por segundo la prioridad de un proceso nuevo
+     * @param srrB cuanto sube por segundo la prioridad de un aceptado
+     */
+    public GestorProcesos(Memoria memoria,
+                          CPU cpu,
+                          int cantidadCPUs,
+                          String algoritmoCPU,
+                          ListaProcesos listaProcesos,
+                          ListaDeTrabajos listaDeTrabajos,
+                          ParticionadorDinamico particionador,
+                          Disco disco,
+                          int quantumRR,
+                          int srrA,
+                          int srrB) {
         this.memoria = memoria;
         this.listaProcesos = listaProcesos;
         this.listaDeTrabajos = listaDeTrabajos;
@@ -109,19 +135,25 @@ public class GestorProcesos {
 
         if (quantumRR < 1) quantumRR = QUANTUM_DEFAULT;
         this.quantumRR = quantumRR;
+        if (srrA < 1) srrA = SRR_A_DEFAULT;
+        if (srrB < 0) srrB = SRR_B_DEFAULT;
 
         this.planificador = new Planificador(listaProcesos);
-        // Seleccion del algoritmo segun la configuracion
-        if ("SPN".equals(algoritmoCPU)) {
+        // Seleccion del algoritmo segun la configuracion. Sin distinguir
+        // mayusculas: config.txt guarda el nombre en mayusculas y el combo
+        // de la configuracion lo da como se muestra ("Prioridad").
+        if ("SPN".equalsIgnoreCase(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorSPN());
-        } else if ("SRT".equals(algoritmoCPU)) {
+        } else if ("SRT".equalsIgnoreCase(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorSRT());
-        } else if ("RR".equals(algoritmoCPU)) {
+        } else if ("RR".equalsIgnoreCase(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorRR(quantumRR));
-        } else if ("HRRN".equals(algoritmoCPU)) {
+        } else if ("HRRN".equalsIgnoreCase(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorHRRN());
-        } else if ("Prioridad".equals(algoritmoCPU)) {
+        } else if ("Prioridad".equalsIgnoreCase(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorPrioridad());
+        } else if (PlanificadorSelfishRR.NOMBRE.equalsIgnoreCase(algoritmoCPU)) {
+            this.planificador.setEstrategia(new PlanificadorSelfishRR(quantumRR, srrA, srrB));
         } else {
             this.planificador.setEstrategia(new PlanificadorFCFS());
         }
@@ -250,8 +282,8 @@ public class GestorProcesos {
         }
         procesosPendientesLlegada.removeAll(llegadosAhora);
 
-        // 3. Si NO es RR: agregar llegadas directo + expulsiones SRT
-        if (!esRR()) {
+        // 3. Si NO usa quantum: agregar llegadas directo + expulsiones SRT
+        if (!usaQuantum()) {
             for (BCP bcp : llegadosAhora) {
                 listaProcesos.agregar(bcp);
                 System.out.println("[RELOJ " + relojGlobal + "] Proceso " + bcp.getId() + " ha llegado.");
@@ -262,15 +294,32 @@ public class GestorProcesos {
             }
         }
 
-        // 3.5. RR: rotacion por quantum CON orden especial de llegadas
-        if (esRR()) {
+        // 3.5. RR y Selfish RR: rotacion por quantum CON orden especial de llegadas.
+        //      En RR entran a la cola de turnos los que llegan; en Selfish RR,
+        //      los que se aceptan en este segundo.
+        if (usaQuantum()) {
+            for (BCP bcp : llegadosAhora) {
+                System.out.println("[RELOJ " + relojGlobal + "] Proceso " + bcp.getId() + " ha llegado.");
+            }
+
+            List<BCP> entrantes = llegadosAhora;
             boolean colaVaciaAntes = listaProcesos.estaVacia();
+
+            if (esSelfishRR()) {
+                PlanificadorSelfishRR srr = (PlanificadorSelfishRR) planificador.getEstrategia();
+                // Los que llegan esperan en la cola de nuevos: estan en la
+                // lista, pero el planificador no los elige hasta aceptarlos.
+                for (BCP bcp : llegadosAhora) {
+                    listaProcesos.agregar(bcp);
+                }
+                colaVaciaAntes = !srr.hayAceptadosEnCola(listaProcesos);
+                entrantes = srr.actualizarPrioridades(listaProcesos, procesosEnCPU());
+            }
 
             if (colaVaciaAntes) {
                 // R4: cola vacia -> primero los nuevos, luego rota el de CPU
-                for (BCP bcp : llegadosAhora) {
-                    listaProcesos.agregar(bcp);
-                    System.out.println("[RELOJ " + relojGlobal + "] Proceso " + bcp.getId() + " ha llegado.");
+                for (BCP bcp : entrantes) {
+                    encolarAlFinal(bcp);
                 }
 
                 procesarRotacionPorQuantum();
@@ -279,9 +328,8 @@ public class GestorProcesos {
                 // R5: cola NO vacia -> primero rota el de CPU, luego llegan
                 procesarRotacionPorQuantum();
 
-                for (BCP bcp : llegadosAhora) {
-                    listaProcesos.agregar(bcp);
-                    System.out.println("[RELOJ " + relojGlobal + "] Proceso " + bcp.getId() + " ha llegado.");
+                for (BCP bcp : entrantes) {
+                    encolarAlFinal(bcp);
                 }
             }
         }
@@ -304,12 +352,12 @@ public class GestorProcesos {
         List<BCP> terminadosEnEstePaso = new ArrayList<>();
         gestorCPUs.ejecutarPasoEnTodos(terminadosEnEstePaso);
 
-        // 7. Registrar ejecuciones + incrementar contador de quantum (RR)
+        // 7. Registrar ejecuciones + incrementar contador de quantum (RR y Selfish RR)
         for (Map.Entry<Integer, Integer> e : ejecucionesEnPaso.entrySet()) {
             int idProceso = e.getKey();
             registrarEjecucion(idProceso, e.getValue(), relojGlobal);
 
-            if (esRR()) {
+            if (usaQuantum()) {
                 int c = quantumConsumidoPorProceso.getOrDefault(idProceso, 0) + 1;
                 quantumConsumidoPorProceso.put(idProceso, c);
             }
@@ -356,6 +404,42 @@ public class GestorProcesos {
      */
     private boolean esRR() {
         return "RR".equals(planificador.getNombreEstrategia());
+    }
+
+    /**
+     * @return true si la estrategia activa es Selfish Round Robin.
+     */
+    private boolean esSelfishRR() {
+        return planificador.getEstrategia() instanceof PlanificadorSelfishRR;
+    }
+
+    /**
+     * @return true si la estrategia reparte la CPU por quantum (RR o Selfish RR).
+     */
+    private boolean usaQuantum() {
+        return esRR() || esSelfishRR();
+    }
+
+    /**
+     * Pone el proceso al final de la cola. En Selfish RR el proceso ya
+     * esta en la lista (esperaba como nuevo), por eso primero se saca.
+     */
+    private void encolarAlFinal(BCP bcp) {
+        listaProcesos.sacar(bcp);
+        listaProcesos.agregar(bcp);
+    }
+
+    /**
+     * @return los procesos que ocupan un nucleo (en ejecucion o esperando el disco).
+     */
+    private List<BCP> procesosEnCPU() {
+        List<BCP> enCPU = new ArrayList<>();
+        for (Nucleo nucleo : gestorCPUs.getNucleos()) {
+            if (nucleo.estaOcupado() && nucleo.getBcpActual() != null) {
+                enCPU.add(nucleo.getBcpActual());
+            }
+        }
+        return enCPU;
     }
 
     /**

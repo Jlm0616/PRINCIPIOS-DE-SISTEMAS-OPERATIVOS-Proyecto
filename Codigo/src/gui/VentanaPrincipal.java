@@ -58,6 +58,8 @@ public class VentanaPrincipal extends JFrame {
     private int cantidadCPUsActual;
     private String algoritmoCPUActual;
     private int quantumRRActual;
+    private int srrAActual;
+    private int srrBActual;
 
     private Memoria memoria;
     private CPU cpu;
@@ -134,6 +136,8 @@ public class VentanaPrincipal extends JFrame {
         this.cantidadCPUsActual = config.getCpus();
         this.algoritmoCPUActual = config.getAlgoritmoCPU();
         this.quantumRRActual = config.getQuantum();
+        this.srrAActual = config.getSrrA();
+        this.srrBActual = config.getSrrB();
     }
 
     // Aplica el LookAndFeel Nimbus si está disponible.
@@ -171,10 +175,12 @@ public class VentanaPrincipal extends JFrame {
                     memoria.getLimiteKernelUsuario(),
                     memoria.getEspacioUsuarioDisponible());
 
-            // Se pasa la cantidad de CPUs, el algoritmo y el quantum al GestorProcesos
+            // Se pasa la cantidad de CPUs, el algoritmo, el quantum y a, b de
+            // Selfish RR al GestorProcesos
             gestor = new GestorProcesos(memoria, cpu, cantidadCPUsActual, algoritmoCPUActual,
                                         listaProcesos, listaDeTrabajos,
-                                        particionador, disco, quantumRRActual);
+                                        particionador, disco, quantumRRActual,
+                                        srrAActual, srrBActual);
 
             // Reiniciar el balanceador al crear el sistema
             gestor.reiniciarBalanceador();
@@ -527,6 +533,8 @@ public class VentanaPrincipal extends JFrame {
         int viejoCPUs = this.cantidadCPUsActual;
         String viejoAlgoritmo = this.algoritmoCPUActual;
         int viejoQuantum = this.quantumRRActual;
+        int viejoSrrA = this.srrAActual;
+        int viejoSrrB = this.srrBActual;
 
         VentanaConfiguracion dialogo = new VentanaConfiguracion(
                 this,
@@ -537,7 +545,9 @@ public class VentanaPrincipal extends JFrame {
                 tamanoSwapActual,
                 cantidadCPUsActual,
                 algoritmoCPUActual,
-                quantumRRActual);
+                quantumRRActual,
+                srrAActual,
+                srrBActual);
 
         dialogo.setVisible(true);
 
@@ -551,6 +561,8 @@ public class VentanaPrincipal extends JFrame {
         int nuevoCPUs   = dialogo.getCantidadCPUs();
         String nuevoAlgoritmo = dialogo.getAlgoritmoCPU();
         int nuevoQuantum = dialogo.getQuantum();
+        int nuevoSrrA = dialogo.getSrrA();
+        int nuevoSrrB = dialogo.getSrrB();
 
         this.tamanoMemoriaActual = nuevoTamano;
         this.limiteKernelActual = nuevoKernel;
@@ -560,6 +572,8 @@ public class VentanaPrincipal extends JFrame {
         this.cantidadCPUsActual = nuevoCPUs;
         this.algoritmoCPUActual = nuevoAlgoritmo;
         this.quantumRRActual = nuevoQuantum;
+        this.srrAActual = nuevoSrrA;
+        this.srrBActual = nuevoSrrB;
 
         try {
             inicializarSistema();
@@ -572,6 +586,8 @@ public class VentanaPrincipal extends JFrame {
             this.cantidadCPUsActual = viejoCPUs;
             this.algoritmoCPUActual = viejoAlgoritmo;
             this.quantumRRActual = viejoQuantum;
+            this.srrAActual = viejoSrrA;
+            this.srrBActual = viejoSrrB;
 
             JOptionPane.showMessageDialog(this,
                     "La configuracion no es valida:\n\n"
@@ -590,6 +606,8 @@ public class VentanaPrincipal extends JFrame {
         config.setCpus(nuevoCPUs);
         config.setAlgoritmoCPU(nuevoAlgoritmo);
         config.setQuantum(nuevoQuantum);
+        config.setSrrA(nuevoSrrA);
+        config.setSrrB(nuevoSrrB);
         config.guardar();
 
         configurarCallbacks();
@@ -622,8 +640,7 @@ public class VentanaPrincipal extends JFrame {
                 + memoria.getTamanoListaTrabajos() + " posiciones ("
                 + maxArchivosActual + " entradas)");
         panelPantalla.agregarMensaje(">>   CPUs: " + cantidadCPUsActual
-                + " | Algoritmo: " + algoritmoCPUActual
-                + ("RR".equals(algoritmoCPUActual) ? " (quantum=" + quantumRRActual + ")" : ""));
+                + " | Algoritmo: " + algoritmoCPUActual + parametrosAlgoritmo());
         panelPantalla.agregarMensaje(">>   Disco: " + tamanoDiscoActual
                 + " posiciones (maxArchivos=" + maxArchivosActual
                 + ", swap=" + tamanoSwapActual + ")");
@@ -635,6 +652,21 @@ public class VentanaPrincipal extends JFrame {
                 + "-" + (disco.getInicioArchivos() - 1));
         panelPantalla.agregarMensaje(">>     Archivos: " + disco.getInicioArchivos()
                 + "-" + (tamanoDiscoActual - 1));
+    }
+
+    /**
+     * Texto con los parametros del algoritmo activo, para los mensajes
+     * de la pantalla: quantum en RR; quantum, a y b en Selfish RR.
+     */
+    private String parametrosAlgoritmo() {
+        if ("RR".equalsIgnoreCase(algoritmoCPUActual)) {
+            return " (quantum=" + quantumRRActual + ")";
+        }
+        if ("Selfish RR".equalsIgnoreCase(algoritmoCPUActual)) {
+            return " (quantum=" + quantumRRActual + ", a=" + srrAActual
+                    + ", b=" + srrBActual + ")";
+        }
+        return "";
     }
 
     /**
@@ -654,8 +686,7 @@ public class VentanaPrincipal extends JFrame {
 
         panelPantalla.agregarMensaje("");
         panelPantalla.agregarMensaje(">> ================== ESTADISTICAS ==================");
-        panelPantalla.agregarMensaje(">> Algoritmo: " + algoritmoCPUActual
-                + ("RR".equals(algoritmoCPUActual) ? " (q=" + quantumRRActual + ")" : ""));
+        panelPantalla.agregarMensaje(">> Algoritmo: " + algoritmoCPUActual + parametrosAlgoritmo());
         panelPantalla.agregarMensaje("");
         panelPantalla.agregarMensaje(">> Proceso | Inicio | Fin    | Duracion | Turnaround | Tr/Ts");
         panelPantalla.agregarMensaje(">> ------------------------------------------------------");

@@ -15,8 +15,8 @@ import java.awt.Frame;
  * Ventana de configuracion del sistema.
  *
  * Pestañas: Memoria, Disco, CPUs.
- * La pestaña de CPUs permite elegir el algoritmo y, si es RR,
- * configurar el quantum.
+ * La pestaña de CPUs permite elegir el algoritmo y, si es RR o
+ * Selfish RR, configurar el quantum (y a, b para Selfish RR).
  */
 public class VentanaConfiguracion extends JDialog {
 
@@ -37,6 +37,8 @@ public class VentanaConfiguracion extends JDialog {
     private int cantidadCPUs;
     private String algoritmoCPU;
     private int quantumRR;
+    private int srrA;
+    private int srrB;
 
     /** Constructor legacy (sin quantum). Usa QUANTUM_DEFAULT. */
     public VentanaConfiguracion(Frame propietario,
@@ -52,7 +54,7 @@ public class VentanaConfiguracion extends JDialog {
              cpusActual, algoritmoActual, QUANTUM_DEFAULT);
     }
 
-    /** Constructor completo (con quantum). */
+    /** Constructor con quantum (a y b de Selfish RR por defecto). */
     public VentanaConfiguracion(Frame propietario,
                                  int tamanoMemoriaActual,
                                  int limiteKernelActual,
@@ -62,6 +64,25 @@ public class VentanaConfiguracion extends JDialog {
                                  int cpusActual,
                                  String algoritmoActual,
                                  int quantumActual) {
+        this(propietario, tamanoMemoriaActual, limiteKernelActual,
+             tamanoDiscoActual, maxArchivosActual, tamanoSwapActual,
+             cpusActual, algoritmoActual, quantumActual,
+             config.ConfiguracionExterna.SRR_A_DEFAULT,
+             config.ConfiguracionExterna.SRR_B_DEFAULT);
+    }
+
+    /** Constructor completo (con quantum y a, b de Selfish RR). */
+    public VentanaConfiguracion(Frame propietario,
+                                 int tamanoMemoriaActual,
+                                 int limiteKernelActual,
+                                 int tamanoDiscoActual,
+                                 int maxArchivosActual,
+                                 int tamanoSwapActual,
+                                 int cpusActual,
+                                 String algoritmoActual,
+                                 int quantumActual,
+                                 int srrAActual,
+                                 int srrBActual) {
         super(propietario, "Configuracion", true);
         this.confirmado = false;
         this.tamanoMemoria = tamanoMemoriaActual;
@@ -72,11 +93,13 @@ public class VentanaConfiguracion extends JDialog {
         this.cantidadCPUs = cpusActual;
         this.algoritmoCPU = algoritmoActual;
         this.quantumRR = (quantumActual >= 1) ? quantumActual : QUANTUM_DEFAULT;
+        this.srrA = srrAActual;
+        this.srrB = srrBActual;
 
         construirInterfaz(tamanoMemoriaActual, limiteKernelActual,
                           tamanoDiscoActual, maxArchivosActual,
                           tamanoSwapActual, cpusActual, algoritmoActual,
-                          this.quantumRR);
+                          this.quantumRR, srrAActual, srrBActual);
         pack();
         setResizable(false);
         setLocationRelativeTo(propietario);
@@ -89,7 +112,9 @@ public class VentanaConfiguracion extends JDialog {
                                     int tamanoSwapActual,
                                     int cpusActual,
                                     String algoritmoActual,
-                                    int quantumActual) {
+                                    int quantumActual,
+                                    int srrAActual,
+                                    int srrBActual) {
 
         // Ambos paneles reciben cpusActual para calcular sus mínimos dinámicos
         panelMemoria = new PanelConfigMemoria(
@@ -99,7 +124,8 @@ public class VentanaConfiguracion extends JDialog {
         panelDisco = new PanelConfigDisco(
                 tamanoDiscoActual, maxArchivosActual, tamanoSwapActual, cpusActual);
 
-        panelCPU = new PanelConfigCPU(cpusActual, algoritmoActual, quantumActual);
+        panelCPU = new PanelConfigCPU(cpusActual, algoritmoActual, quantumActual,
+                                      srrAActual, srrBActual);
 
         // === Callback para actualizar paneles cuando cambie el número de CPUs ===
         panelCPU.setOnCpusChanged(() -> {
@@ -203,6 +229,8 @@ public class VentanaConfiguracion extends JDialog {
         cantidadCPUs = panelCPU.getCantidadCPUs();
         algoritmoCPU = panelCPU.getAlgoritmoCPU();
         quantumRR = panelCPU.getQuantum();
+        srrA = panelCPU.getSrrA();
+        srrB = panelCPU.getSrrB();
 
         confirmado = true;
         dispose();
@@ -245,5 +273,19 @@ public class VentanaConfiguracion extends JDialog {
      */
     public int getQuantum() {
         return quantumRR;
+    }
+
+    /**
+     * @return a de Selfish RR: incremento de prioridad de los nuevos.
+     */
+    public int getSrrA() {
+        return srrA;
+    }
+
+    /**
+     * @return b de Selfish RR: incremento de prioridad de los aceptados.
+     */
+    public int getSrrB() {
+        return srrB;
     }
 }

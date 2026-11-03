@@ -14,16 +14,19 @@ import java.util.Properties;
  *
  * Parametros CONFIGURABLES:
  *   - memoria, kernel, disco, max_archivos, memoria_virtual, cpus,
- *     algoritmo_cpu, quantum.
+ *     algoritmo_cpu, quantum, srr_a, srr_b.
  *
  * Parametros FIJOS:
  *   - max_procesos = 5 por CPU.
  *
  * PROYECTO 2:
- *   - Algoritmos validos: FCFS, SPN, SRT, RR, HRRN, Prioridad.
- *   - Se iran agregando los demas (Selfish RR, Lottery, Guaranteed,
- *     MLFQ) cuando se implementen.
- *   - quantum solo aplica para RR. Default = 1.
+ *   - Algoritmos validos: FCFS, SPN, SRT, RR, HRRN, Prioridad, Selfish RR.
+ *   - Se iran agregando los demas (Lottery, Guaranteed, MLFQ) cuando
+ *     se implementen.
+ *   - quantum aplica para RR y Selfish RR. Default = 1.
+ *   - srr_a y srr_b solo aplican para Selfish RR: cuanto sube por
+ *     segundo la prioridad de un proceso nuevo (a) y la de uno
+ *     aceptado (b). Default a = 2, b = 1.
  */
 public class ConfiguracionExterna {
 
@@ -38,12 +41,14 @@ public class ConfiguracionExterna {
     public static final int CPUS_DEFAULT = 1;
     public static final String ALGORITMO_CPU_DEFAULT = "FCFS";
     public static final int QUANTUM_DEFAULT = 1;
+    public static final int SRR_A_DEFAULT = 2;
+    public static final int SRR_B_DEFAULT = 1;
 
     public static final int MAX_PROCESOS = 5;
 
     // Algoritmos de CPU soportados actualmente.
     private static final String[] ALGORITMOS_VALIDOS = {
-        "FCFS", "SPN", "SRT", "RR", "HRRN", "PRIORIDAD"
+        "FCFS", "SPN", "SRT", "RR", "HRRN", "PRIORIDAD", "SELFISH RR"
     };
 
     // Valores mínimos absolutos (si el usuario pone menos, se corrige)
@@ -67,6 +72,11 @@ public class ConfiguracionExterna {
     public static final int QUANTUM_MINIMO = 1;
     public static final int QUANTUM_MAXIMO = 20;
 
+    public static final int SRR_A_MINIMO = 1;
+    public static final int SRR_A_MAXIMO = 20;
+    public static final int SRR_B_MINIMO = 0;
+    public static final int SRR_B_MAXIMO = 20;
+
     private int memoria         = MEMORIA_DEFAULT;
     private int kernel          = KERNEL_DEFAULT;
     private int disco           = DISCO_DEFAULT;
@@ -75,6 +85,8 @@ public class ConfiguracionExterna {
     private int cpus            = CPUS_DEFAULT;
     private String algoritmoCPU = ALGORITMO_CPU_DEFAULT;
     private int quantum         = QUANTUM_DEFAULT;
+    private int srrA            = SRR_A_DEFAULT;
+    private int srrB            = SRR_B_DEFAULT;
 
     private boolean huboCorrecciones = false;
     private final StringBuilder mensajesCorrecciones = new StringBuilder();
@@ -102,6 +114,8 @@ public class ConfiguracionExterna {
             memoriaVirtual = parsear(props, "memoria_virtual", memoriaVirtual);
             cpus           = parsear(props, "cpus",           cpus);
             quantum        = parsear(props, "quantum",        quantum);
+            srrA           = parsear(props, "srr_a",          srrA);
+            srrB           = parsear(props, "srr_b",          srrB);
 
             // Leer el algoritmo (si no está, usa FCFS)
             algoritmoCPU = props.getProperty("algoritmo_cpu", ALGORITMO_CPU_DEFAULT).toUpperCase();
@@ -114,7 +128,9 @@ public class ConfiguracionExterna {
                     + ", MaxArchivos: " + maxArchivos + ", Swap: " + memoriaVirtual);
             System.out.println("[CONFIG]   CPUs: " + cpus);
             System.out.println("[CONFIG]   Algoritmo CPU: " + algoritmoCPU
-                    + (esRR() ? " (quantum=" + quantum + ")" : ""));
+                    + (esRR() ? " (quantum=" + quantum + ")" : "")
+                    + (esSelfishRR() ? " (quantum=" + quantum + ", a=" + srrA
+                            + ", b=" + srrB + ")" : ""));
             System.out.println("[CONFIG]   MaxProcesos: " + MAX_PROCESOS
                     + " (FIJO por CPU)");
 
@@ -240,7 +256,21 @@ public class ConfiguracionExterna {
             algoritmoCPU = ALGORITMO_CPU_DEFAULT;
         }
 
-        // ==== QUANTUM (solo aplica para RR) ====
+        // ==== SELFISH RR: a y b ====
+        if (srrA < SRR_A_MINIMO || srrA > SRR_A_MAXIMO) {
+            agregarCorreccion("srr_a=" + srrA
+                    + " invalido (rango " + SRR_A_MINIMO + " a " + SRR_A_MAXIMO + "). Usando "
+                    + SRR_A_DEFAULT + ".");
+            srrA = SRR_A_DEFAULT;
+        }
+        if (srrB < SRR_B_MINIMO || srrB > SRR_B_MAXIMO) {
+            agregarCorreccion("srr_b=" + srrB
+                    + " invalido (rango " + SRR_B_MINIMO + " a " + SRR_B_MAXIMO + "). Usando "
+                    + SRR_B_DEFAULT + ".");
+            srrB = SRR_B_DEFAULT;
+        }
+
+        // ==== QUANTUM (aplica para RR y Selfish RR) ====
         if (quantum < QUANTUM_MINIMO) {
             agregarCorreccion("quantum=" + quantum
                     + " invalido (minimo " + QUANTUM_MINIMO + "). Usando "
@@ -335,6 +365,13 @@ public class ConfiguracionExterna {
         return "RR".equals(algoritmoCPU);
     }
 
+    /**
+     * @return true si el algoritmo activo es Selfish Round Robin.
+     */
+    private boolean esSelfishRR() {
+        return "SELFISH RR".equalsIgnoreCase(algoritmoCPU);
+    }
+
     /* ==================== FÓRMULAS DINÁMICAS ==================== */
 
     /**
@@ -391,6 +428,8 @@ public class ConfiguracionExterna {
         props.setProperty("cpus",            String.valueOf(cpus));
         props.setProperty("algoritmo_cpu",   algoritmoCPU);
         props.setProperty("quantum",         String.valueOf(quantum));
+        props.setProperty("srr_a",           String.valueOf(srrA));
+        props.setProperty("srr_b",           String.valueOf(srrB));
 
         try (FileOutputStream out = new FileOutputStream(ARCHIVO)) {
             props.store(out, "Configuracion del Sistema - Proyecto 2 SO");
@@ -425,6 +464,8 @@ public class ConfiguracionExterna {
     public int getCpus()           { return cpus; }
     public String getAlgoritmoCPU(){ return algoritmoCPU; }
     public int getQuantum()        { return quantum; }
+    public int getSrrA()           { return srrA; }
+    public int getSrrB()           { return srrB; }
     public int getMaxProcesos()    { return MAX_PROCESOS; }
 
     public boolean huboCorrecciones() { return huboCorrecciones; }
@@ -440,6 +481,8 @@ public class ConfiguracionExterna {
     public void setCpus(int v)           { this.cpus = v; }
     public void setAlgoritmoCPU(String v){ this.algoritmoCPU = v; }
     public void setQuantum(int v)        { this.quantum = v; }
+    public void setSrrA(int v)           { this.srrA = v; }
+    public void setSrrB(int v)           { this.srrB = v; }
 
     @Override
     public String toString() {
@@ -452,6 +495,8 @@ public class ConfiguracionExterna {
                 + ", cpus=" + cpus
                 + ", algoritmoCPU='" + algoritmoCPU + '\''
                 + ", quantum=" + quantum
+                + ", srrA=" + srrA
+                + ", srrB=" + srrB
                 + ", maxProcesos=" + MAX_PROCESOS
                 + "}";
     }
