@@ -1,6 +1,6 @@
 #Configuracion del Sistema - Proyecto 2 SO
-#Sun Nov 01 00:10:00 CST 2026
-algoritmo_cpu=FCFS
+#Mon Nov 02 23:27:34 CST 2026
+algoritmo_cpu=Selfish RR
 cpus=3
 disco=512
 kernel=909
@@ -8,3 +8,5 @@ max_archivos=5
 memoria=3030
 memoria_virtual=64
 quantum=1
+srr_a=2
+srr_b=1
