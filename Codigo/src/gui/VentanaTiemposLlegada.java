@@ -1,6 +1,7 @@
 package gui;
 
 import logica.cpu.Nucleo;
+import logica.TrabajoNuevo;
 import modelo.BCP;
 
 import javax.swing.JDialog;
@@ -38,6 +39,8 @@ import java.util.List;
  *    pueda corregir su TL o prioridad antes de que lleguen.
  *  - Si baja el TL a un valor <= relojGlobal, GestorProcesos lo mueve
  *    automaticamente a READY en el proximo refresco.
+ *  - El Tiempo de Llegada SOLO es editable si el proceso esta en NEW
+ *    (pendiente de llegada). Los que estan en RAM o CPU ya no se pueden cambiar.
  */
 public class VentanaTiemposLlegada extends JDialog {
 
@@ -49,12 +52,14 @@ public class VentanaTiemposLlegada extends JDialog {
 
     // Color para procesos pendientes (fondo amarillo claro)
     private static final Color COLOR_PENDIENTE = new Color(0xFF, 0xF3, 0xCD);
+    // Color para celdas bloqueadas (gris claro)
+    private static final Color COLOR_BLOQUEADO = new Color(0xEE, 0xEE, 0xEE);
 
     private JTable tabla;
     private DefaultTableModel modelo;
     private List<Nucleo> nucleos;
     private List<BCP> procesosEnCola;
-    private List<BCP> pendientesLlegada;
+    private List<TrabajoNuevo> trabajosNuevos;
 
     private boolean confirmado = false;
 
@@ -65,16 +70,16 @@ public class VentanaTiemposLlegada extends JDialog {
         this(propietario, nucleos, procesosEnCola, new ArrayList<>());
     }
 
-    /** Constructor completo (con pendientes). */
+    /** Constructor completo (con trabajos en NEW). */
     public VentanaTiemposLlegada(Frame propietario,
                                  List<Nucleo> nucleos,
                                  List<BCP> procesosEnCola,
-                                 List<BCP> pendientesLlegada) {
+                                 List<TrabajoNuevo> trabajosNuevos) {
         super(propietario, "Configurar Tiempos de Llegada y Prioridades", true);
         this.nucleos = nucleos;
         this.procesosEnCola = procesosEnCola;
-        this.pendientesLlegada = (pendientesLlegada != null)
-                ? pendientesLlegada : new ArrayList<>();
+        this.trabajosNuevos = (trabajosNuevos != null)
+                ? trabajosNuevos : new ArrayList<>();
 
         construirInterfaz();
         pack();
@@ -99,7 +104,16 @@ public class VentanaTiemposLlegada extends JDialog {
                 new Object[]{"Ubicación", "ID", "Ráfaga", "Tiempo Llegada", "Prioridad"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return column == COL_LLEGADA || column == COL_PRIORIDAD;
+                // La prioridad siempre se puede editar
+                if (column == COL_PRIORIDAD) return true;
+                
+                // El TL solo se puede editar si la ubicación empieza con "Espera TL="
+                if (column == COL_LLEGADA) {
+                    String ubicacion = (String) getValueAt(row, COL_UBICACION);
+                    return ubicacion != null && ubicacion.startsWith("Espera TL=");
+                }
+                
+                return false;
             }
         };
 
@@ -130,14 +144,14 @@ public class VentanaTiemposLlegada extends JDialog {
             });
         }
 
-        // 3. Procesos pendientes de llegada (TL futuro)
-        for (BCP bcp : pendientesLlegada) {
+        // 3. Procesos pendientes de llegada (desde TrabajoNuevo)
+        for (TrabajoNuevo t : trabajosNuevos) {
             modelo.addRow(new Object[]{
-                "Espera TL=" + bcp.getTiempoLlegada(),
-                bcp.getId(),
-                bcp.getRafaga(),
-                bcp.getTiempoLlegada(),
-                bcp.getPrioridad()
+                "Espera TL=" + t.getTiempoLlegada(),
+                t.getId(),
+                t.getTamano(),
+                t.getTiempoLlegada(),
+                t.getPrioridad()
             });
         }
 
@@ -146,7 +160,7 @@ public class VentanaTiemposLlegada extends JDialog {
         tabla.setRowHeight(25);
         tabla.getTableHeader().setFont(Paleta.FUENTE_LABEL_BOLD);
 
-        // Renderizador de la columna "Ubicación"
+        // Renderizador de la columna "Ubicación" y celdas bloqueadas
         tabla.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value,
@@ -177,6 +191,17 @@ public class VentanaTiemposLlegada extends JDialog {
                             c.setForeground(Paleta.TEXTO_NORMAL);
                             setFont(Paleta.FUENTE_MONO);
                         }
+                    } else if (column == COL_LLEGADA) {
+                        // Si NO es editable, pintarlo de gris
+                        String ubicacion = (String) table.getValueAt(row, COL_UBICACION);
+                        if (ubicacion != null && !ubicacion.startsWith("Espera TL=")) {
+                            c.setBackground(COLOR_BLOQUEADO);
+                            c.setForeground(Color.GRAY);
+                        } else {
+                            c.setBackground(row % 2 == 0 ? Color.WHITE : Paleta.FONDO_FILA_ALT);
+                            c.setForeground(Paleta.TEXTO_NORMAL);
+                        }
+                        setFont(Paleta.FUENTE_MONO);
                     } else {
                         c.setBackground(row % 2 == 0 ? Color.WHITE : Paleta.FONDO_FILA_ALT);
                         c.setForeground(Paleta.TEXTO_NORMAL);

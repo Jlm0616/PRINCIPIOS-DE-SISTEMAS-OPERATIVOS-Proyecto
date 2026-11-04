@@ -3,7 +3,7 @@ package gui;
 import modelo.BCP;
 import modelo.EstadoProceso;
 import logica.ListaProcesos;
-import logica.ListaDeTrabajos;
+import logica.TrabajoNuevo;
 import logica.cpu.Nucleo;
 
 import javax.swing.JPanel;
@@ -35,19 +35,10 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 
 /**
- * Panel de procesos (RAM + Disco + Pendientes) y detalle del BCP.
- *
- * PROYECTO 2:
- *  - Boton "Asignar Tiempos y Prioridades" abre VentanaTiemposLlegada.
- *  - Al confirmar, dispara el callback BiConsumer con:
- *      Object[][] tiempos     -> {id, tiempoLlegada}
- *      Object[][] prioridades -> {id, prioridad}
- *  - Los procesos pendientes de llegada (TL futuro) se muestran en la
- *    tabla con estado NEW y fondo AMARILLO para poder corregirlos.
+ * Panel de procesos (RAM + Pendientes NEW) y detalle del BCP.
  */
 public class PanelProcesos extends JPanel {
 
-    // Color para procesos pendientes de llegada (TL futuro)
     private static final Color COLOR_PENDIENTE = new Color(0xFF, 0xF3, 0xCD);
 
     private JTable tablaProcesos;
@@ -59,12 +50,10 @@ public class PanelProcesos extends JPanel {
     private TitledBorder bordeBCP;
     private JButton btnTiemposLlegada;
 
-    // Callback: (tiempos[][], prioridades[][])
     private BiConsumer<Object[][], Object[][]> onTiemposYPrioridadesCambiados;
 
-    // Lista temporal para pasar a VentanaTiemposLlegada
     private List<BCP> listaProcesosTemporal = new ArrayList<>();
-    private List<BCP> pendientesLlegadaTemporal = new ArrayList<>();
+    private List<TrabajoNuevo> trabajosNuevosTemporal = new ArrayList<>();
 
     private JLabel lblId;
     private JLabel lblPC;
@@ -89,7 +78,6 @@ public class PanelProcesos extends JPanel {
         setLayout(new GridBagLayout());
         setOpaque(false);
 
-        // ===== Panel superior: Tabla + Botón =====
         JPanel panelSuperior = new JPanel(new BorderLayout(5, 5));
         panelSuperior.setOpaque(false);
 
@@ -115,9 +103,7 @@ public class PanelProcesos extends JPanel {
                 Component c = super.getTableCellRendererComponent(
                         table, value, isSelected, hasFocus, row, column);
 
-                if (isSelected) {
-                    return c;
-                }
+                if (isSelected) return c;
 
                 if (column == 1) {
                     String estado = value != null ? value.toString() : "";
@@ -137,7 +123,6 @@ public class PanelProcesos extends JPanel {
                             c.setForeground(Paleta.TEXTO_NORMAL);
                         }
                     } else if (texto.contains("(Espera TL=")) {
-                        // Proceso pendiente de llegada -> fondo amarillo
                         c.setBackground(COLOR_PENDIENTE);
                         c.setForeground(Paleta.TEXTO_NORMAL);
                         setFont(Paleta.FUENTE_MONO);
@@ -155,7 +140,7 @@ public class PanelProcesos extends JPanel {
         scrollTabla.setPreferredSize(new Dimension(0, 200));
         scrollTabla.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(Paleta.VERDE_OSCURO, 2),
-                "Procesos (RAM + Disco + Pendientes)",
+                "Procesos (RAM + NEW)",
                 TitledBorder.DEFAULT_JUSTIFICATION,
                 TitledBorder.DEFAULT_POSITION,
                 Paleta.FUENTE_TITULO_PANEL,
@@ -163,7 +148,6 @@ public class PanelProcesos extends JPanel {
         ));
         panelSuperior.add(scrollTabla, BorderLayout.CENTER);
 
-        // Botón unificado: Tiempos de Llegada + Prioridades
         btnTiemposLlegada = new JButton("Asignar Tiempos y Prioridades");
         btnTiemposLlegada.setFont(Paleta.FUENTE_BOTON);
         btnTiemposLlegada.setBackground(Paleta.MORADO_ACENTO);
@@ -185,7 +169,6 @@ public class PanelProcesos extends JPanel {
         gbcSup.insets = new Insets(0, 0, 5, 0);
         add(panelSuperior, gbcSup);
 
-        // ===== Panel BCP actual (abajo) =====
         JPanel panelSur = new JPanel(new BorderLayout(5, 5));
         panelSur.setOpaque(false);
 
@@ -225,7 +208,6 @@ public class PanelProcesos extends JPanel {
         add(panelSur, gbcSur);
     }
 
-    // Abre la ventana para asignar tiempos de llegada y prioridades
     private void abrirVentanaTiempos() {
         if (nucleosActuales == null || nucleosActuales.isEmpty()) {
             JOptionPane.showMessageDialog(this,
@@ -238,7 +220,7 @@ public class PanelProcesos extends JPanel {
                 (java.awt.Frame) javax.swing.SwingUtilities.getWindowAncestor(this),
                 nucleosActuales,
                 listaProcesosTemporal,
-                pendientesLlegadaTemporal
+                trabajosNuevosTemporal
         );
 
         ventana.setVisible(true);
@@ -253,30 +235,18 @@ public class PanelProcesos extends JPanel {
         }
     }
 
-    /**
-     * Actualiza la tabla de procesos y el detalle del BCP.
-     *
-     * @param listaProcesos           procesos en RAM (READY)
-     * @param nucleos                 nucleos con procesos en CPU
-     * @param procesosBloqueadosInput procesos BLOCKED esperando input
-     * @param listaDeTrabajos         procesos en swap
-     * @param procesosPendientesLlegada procesos esperando su TL (nuevo)
-     */
     public void actualizarLista(ListaProcesos listaProcesos,
                                 List<Nucleo> nucleos,
                                 List<BCP> procesosBloqueadosInput,
-                                ListaDeTrabajos listaDeTrabajos,
-                                List<BCP> procesosPendientesLlegada) {
+                                List<TrabajoNuevo> trabajosNuevos) {
         this.nucleosActuales = nucleos;
         this.listaProcesosTemporal = listaProcesos != null ? listaProcesos.toList() : new ArrayList<>();
-        this.pendientesLlegadaTemporal = procesosPendientesLlegada != null
-                ? new ArrayList<>(procesosPendientesLlegada)
-                : new ArrayList<>();
+        this.trabajosNuevosTemporal = trabajosNuevos != null
+                ? new ArrayList<>(trabajosNuevos) : new ArrayList<>();
 
         modeloProcesos.setRowCount(0);
         Set<Integer> idsAgregados = new HashSet<>();
 
-        // 1. Procesos en las CPUs
         for (Nucleo nucleo : nucleos) {
             if (nucleo.estaOcupado()) {
                 BCP bcp = nucleo.getBcpActual();
@@ -286,74 +256,48 @@ public class PanelProcesos extends JPanel {
                 });
                 idsAgregados.add(bcp.getId());
             } else {
-                modeloProcesos.addRow(new Object[]{
-                    "CPU " + nucleo.getIdNucleo(),
-                    "LIBRE"
-                });
+                modeloProcesos.addRow(new Object[]{ "CPU " + nucleo.getIdNucleo(), "LIBRE" });
             }
         }
 
-        // 2. Lista de procesos en RAM
         if (listaProcesos != null) {
             for (BCP bcp : listaProcesos.toList()) {
                 if (idsAgregados.add(bcp.getId())) {
                     modeloProcesos.addRow(new Object[]{
-                        "ID " + bcp.getId() + " (En RAM)",
-                        bcp.getEstado().toString()
+                        "ID " + bcp.getId() + " (En RAM)", bcp.getEstado().toString()
                     });
                 }
             }
         }
 
-        // 3. Procesos pendientes de llegada (NUEVO)
-        if (procesosPendientesLlegada != null) {
-            for (BCP bcp : procesosPendientesLlegada) {
-                if (idsAgregados.add(bcp.getId())) {
-                    modeloProcesos.addRow(new Object[]{
-                        "ID " + bcp.getId() + " (Espera TL=" + bcp.getTiempoLlegada() + ")",
-                        "NEW"
-                    });
-                }
-            }
-        }
-
-        // 4. Procesos bloqueados
-        if (procesosBloqueadosInput != null) {
-            for (BCP bcp : procesosBloqueadosInput) {
-                if (idsAgregados.add(bcp.getId())) {
-                    modeloProcesos.addRow(new Object[]{
-                        "ID " + bcp.getId() + " (Input)",
-                        bcp.getEstado().toString()
-                    });
-                }
-            }
-        }
-
-        // 5. Lista de trabajos (swap)
-        if (listaDeTrabajos != null) {
-            for (Object[] trabajo : listaDeTrabajos.toList()) {
-                String nombre = (trabajo[0] != null) ? trabajo[0].toString() : "(?)";
+        for (TrabajoNuevo t : trabajosNuevosTemporal) {
+            if (idsAgregados.add(t.getId())) {
                 modeloProcesos.addRow(new Object[]{
-                    nombre + " (Swap)",
+                    "ID " + t.getId() + " " + t.getNombre()
+                        + " (Espera TL=" + t.getTiempoLlegada() + ")",
                     "NEW"
                 });
             }
         }
 
+        if (procesosBloqueadosInput != null) {
+            for (BCP bcp : procesosBloqueadosInput) {
+                if (idsAgregados.add(bcp.getId())) {
+                    modeloProcesos.addRow(new Object[]{
+                        "ID " + bcp.getId() + " (Input)", bcp.getEstado().toString()
+                    });
+                }
+            }
+        }
+
         if (comboCPUs.getItemCount() != nucleos.size()) {
             comboCPUs.removeAllItems();
-            for (Nucleo n : nucleos) {
-                comboCPUs.addItem("CPU " + n.getIdNucleo());
-            }
+            for (Nucleo n : nucleos) comboCPUs.addItem("CPU " + n.getIdNucleo());
         }
 
         actualizarVistaBCP();
     }
 
-    /**
-     * Configura el callback que se ejecuta al confirmar la ventana de
-     * tiempos y prioridades.
-     */
     public void setOnTiemposYPrioridadesCambiados(BiConsumer<Object[][], Object[][]> callback) {
         this.onTiemposYPrioridadesCambiados = callback;
     }
@@ -384,34 +328,20 @@ public class PanelProcesos extends JPanel {
         lblAlcance = crearLabel("Alcance", "-");
 
         int y = 0;
-
         gbc.gridx = 0; gbc.gridy = y; panel.add(lblId, gbc);
-        gbc.gridx = 1; panel.add(lblEstado, gbc);
-        y++;
-
+        gbc.gridx = 1; panel.add(lblEstado, gbc); y++;
         gbc.gridx = 0; gbc.gridy = y; panel.add(lblPC, gbc);
-        gbc.gridx = 1; panel.add(lblIR, gbc);
-        y++;
-
+        gbc.gridx = 1; panel.add(lblIR, gbc); y++;
         gbc.gridx = 0; gbc.gridy = y; panel.add(lblAC, gbc);
-        gbc.gridx = 1; panel.add(lblAX, gbc);
-        y++;
-
+        gbc.gridx = 1; panel.add(lblAX, gbc); y++;
         gbc.gridx = 0; gbc.gridy = y; panel.add(lblBX, gbc);
-        gbc.gridx = 1; panel.add(lblCX, gbc);
-        y++;
-
+        gbc.gridx = 1; panel.add(lblCX, gbc); y++;
         gbc.gridx = 0; gbc.gridy = y; panel.add(lblDX, gbc);
-        gbc.gridx = 1; panel.add(lblOF, gbc);
-        y++;
-
+        gbc.gridx = 1; panel.add(lblOF, gbc); y++;
         gbc.gridx = 0; gbc.gridy = y; panel.add(lblEQ, gbc);
-        gbc.gridx = 1; panel.add(lblBase, gbc);
-        y++;
-
+        gbc.gridx = 1; panel.add(lblBase, gbc); y++;
         gbc.gridx = 0; gbc.gridy = y; panel.add(lblAlcance, gbc);
-        gbc.gridx = 1; panel.add(lblPila, gbc);
-        y++;
+        gbc.gridx = 1; panel.add(lblPila, gbc); y++;
 
         return panel;
     }

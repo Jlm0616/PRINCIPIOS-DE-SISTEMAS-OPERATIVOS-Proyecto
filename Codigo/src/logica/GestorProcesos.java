@@ -19,6 +19,7 @@ import modelo.Disco;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,16 @@ import java.util.Map;
  *  - HRRN: elige por mayor (W+S)/S. Necesita el relojGlobal.
  *  - Prioridad: elige por MENOR prioridad numerica (Stallings).
  *  - DIAGRAMA DE GANTT: registra que proceso ejecuto en cada instante.
+ *
+ * ESTADO NEW (tiempo de llegada futuro):
+ *  - Un proceso cuyo TL aun no llega NO tiene BCP. Su programa esta en la
+ *    zona Swap del disco y se representa con un TrabajoNuevo (id, nombre,
+ *    TL, prioridad, direccion de swap).
+ *  - Cuando relojGlobal supera su TL y hay particion libre, se crea el BCP
+ *    (con el mismo id), se cargan las instrucciones en RAM y pasa a READY.
+ *  - Un proceso es un TrabajoNuevo O un BCP, nunca los dos a la vez.
+ *  - Los trabajos que no cupieron en RAM al cargar usan el mismo mecanismo
+ *    (TL = 0): esperan en NEW hasta que haya particion libre.
  */
 public class GestorProcesos {
 
@@ -46,6 +57,8 @@ public class GestorProcesos {
     public static final int QUANTUM_DEFAULT = 1;
     public static final int SRR_A_DEFAULT = 2;
     public static final int SRR_B_DEFAULT = 1;
+
+    private static final int PRIORIDAD_DEFAULT  = 1;
 
     private static final int TARDANZA_CREAR     = 1;
     private static final int TARDANZA_ABRIR     = 1;
@@ -62,19 +75,27 @@ public class GestorProcesos {
     private ParticionadorDinamico particionador;
     private Disco disco;
 
+    // === NUEVO: Randomizador de tiempos ===
+    private RandomizadorTiempos randomizador = new RandomizadorTiempos();
+
     private int siguienteId;
     private List<BCPTerminado> procesosTerminados;
     private List<BCP> procesosBloqueadosInput;
 
-    // === NUEVO: Reloj global y lista de pendientes ===
+    // === Reloj global ===
     private int relojGlobal = 0;
-    private List<BCP> procesosPendientesLlegada = new ArrayList<>();
 
-    // === NUEVO (Diagrama Gantt): ejecuciones por proceso y CPU ===
+    // === NUEVO: procesos en estado NEW (sin BCP, programa en Swap) ===
+    private final List<TrabajoNuevo> trabajosNuevos = new ArrayList<>();
+
+    // === NUEVO: nombre del .asm de cada proceso (solo para mostrar en la GUI) ===
+    private final Map<Integer, String> nombresPorId = new HashMap<>();
+
+    // === (Diagrama Gantt): ejecuciones por proceso y CPU ===
     private Map<Integer, List<IntervaloEjecucion>> intervalosPorProceso = new HashMap<>();
     private Map<Integer, Integer> cpuPorProceso = new HashMap<>();
 
-    // === NUEVO (RR): contador de quantum por proceso ===
+    // === (RR): contador de quantum por proceso ===
     private Map<Integer, Integer> quantumConsumidoPorProceso = new HashMap<>();
     private int quantumRR = QUANTUM_DEFAULT;
 
@@ -173,6 +194,16 @@ public class GestorProcesos {
         return relojGlobal;
     }
 
+    /** Permite inyectar un randomizador con semilla (pruebas). */
+    public void setRandomizador(RandomizadorTiempos randomizador) {
+        if (randomizador != null) this.randomizador = randomizador;
+    }
+
+    /** Envia un mensaje a la pantalla de la GUI (si hay callback). */
+    private void anunciar(String mensaje) {
+        if (salidaPantalla != null) salidaPantalla.accept(mensaje);
+    }
+
     /* ==================== CREACIÓN DE PROCESOS ==================== */
 
     public ResultadoCarga cargarPrograma(File archivo) {
@@ -187,27 +218,49 @@ public class GestorProcesos {
         int id = siguienteId;
         String nombreArchivo = archivo.getName();
 
+        // TL aleatorio en [relojGlobal, relojGlobal + 6]
+        int tiempoLlegada = randomizador.generarTiempoLlegada(relojGlobal);
+
+        // CASO 1: llega en el futuro -> NEW. Va directo al swap: no se le
+        // reserva particion ni BCP, porque todavia no ha entrado al sistema.
+        if (tiempoLlegada > relojGlobal) {
+            String error = guardarEnSwap(instrucciones, id, nombreArchivo,
+                    tiempoLlegada, PRIORIDAD_DEFAULT, false);
+            if (error != null) {
+                return ResultadoCarga.error(
+                    "El proceso llega en t=" + tiempoLlegada + " y debe esperar en "
+                    + "memoria virtual (swap), pero no se pudo guardar:\n" + error);
+            }
+            nombresPorId.put(id, nombreArchivo);
+            siguienteId++;
+            anunciar(">> ID " + id + " (" + nombreArchivo + ") en NEW: llega en t="
+                    + tiempoLlegada + ", esperando en swap.");
+            return ResultadoCarga.enEspera();
+        }
+
+        // CASO 2: llega ya (TL = reloj) -> intentar cargarlo en RAM
         int base = particionador.asignarParticion(tamanoNecesario, id);
         if (base != -1) {
             BCP bcp = crearProcesoEnParticion(instrucciones, base, id);
             if (bcp != null) {
+                bcp.setTiempoLlegada(tiempoLlegada);
                 copiarAsmAArchivos(nombreArchivo, instrucciones);
+                nombresPorId.put(id, nombreArchivo);
                 siguienteId++;
-
-                if (bcp.getTiempoLlegada() > relojGlobal) {
-                    listaProcesos.sacar(bcp);
-                    procesosPendientesLlegada.add(bcp);
-                }
-
                 return ResultadoCarga.exito(bcp);
             }
             particionador.liberarParticion(base, tamanoNecesario, id);
         }
 
-        ResultadoCarga resultadoSwap = suspenderEnSwap(instrucciones, id, nombreArchivo);
-        if (resultadoSwap.getEstado() == ResultadoCarga.Estado.EN_ESPERA) {
+        // CASO 3: llega ya pero no cupo en RAM -> NEW en swap esperando hueco
+        String error = guardarEnSwap(instrucciones, id, nombreArchivo,
+                tiempoLlegada, PRIORIDAD_DEFAULT, false);
+        if (error == null) {
+            nombresPorId.put(id, nombreArchivo);
             siguienteId++;
-            return resultadoSwap;
+            anunciar(">> ID " + id + " (" + nombreArchivo
+                    + ") en NEW: sin hueco en RAM, esperando en swap.");
+            return ResultadoCarga.enEspera();
         }
 
         return ResultadoCarga.error(
@@ -227,44 +280,188 @@ public class GestorProcesos {
         System.out.println("[DISCO] .asm guardado en zona archivos: " + nombreArchivo);
     }
 
-    private ResultadoCarga suspenderEnSwap(List<Instruccion> instrucciones, int id, String nombreArchivo) {
-        int tamanoInstrucciones = instrucciones.size();
+    /**
+     * Guarda el programa en la zona Swap, lo registra en el indice ASM y en
+     * la ListaDeTrabajos, y crea el TrabajoNuevo (estado NEW, sin BCP).
+     *
+     * @return null si todo salio bien, o el mensaje de error
+     */
+    private String guardarEnSwap(List<Instruccion> instrucciones, int id, String nombreArchivo,
+                                 int tiempoLlegada, int prioridad, boolean archivoCopiado) {
+        int tamano = instrucciones.size();
 
-        if (disco.getEspacioSwapLibre() < tamanoInstrucciones) {
-            return ResultadoCarga.error("La memoria virtual del disco no tiene espacio.");
+        if (disco.getEspacioSwapLibre() < tamano) {
+            return "La memoria virtual del disco no tiene espacio.";
         }
 
-        int dirSwap = disco.reservarBloqueSwap(tamanoInstrucciones);
+        int dirSwap = disco.reservarBloqueSwap(tamano);
         if (dirSwap == -1) {
-            return ResultadoCarga.error("No hay bloque contiguo libre en el swap.");
+            return "No hay bloque contiguo libre en el swap.";
         }
 
         disco.escribirBloqueSwap(dirSwap, instrucciones.toArray());
 
-        int finSwap = dirSwap + tamanoInstrucciones - 1;
+        int finSwap = dirSwap + tamano - 1;
         boolean registrado = disco.registrarArchivoAsm(nombreArchivo, dirSwap, finSwap, Disco.ZONA_VIRTUAL);
         if (!registrado) {
-            disco.liberarBloqueSwap(dirSwap, tamanoInstrucciones);
-            return ResultadoCarga.error("No se pudo registrar en el indice ASM.");
+            disco.liberarBloqueSwap(dirSwap, tamano);
+            return "No se pudo registrar en el indice ASM.";
         }
 
         boolean agregado = listaDeTrabajos.agregar(nombreArchivo, dirSwap, finSwap, Disco.ZONA_VIRTUAL);
         if (!agregado) {
-            disco.liberarBloqueSwap(dirSwap, tamanoInstrucciones);
+            disco.liberarBloqueSwap(dirSwap, tamano);
             disco.eliminarDelIndice(nombreArchivo, Disco.TIPO_ASM);
-            return ResultadoCarga.error("La ListaDeTrabajos esta llena.");
+            return "La ListaDeTrabajos esta llena.";
         }
 
-        return ResultadoCarga.enEspera();
+        trabajosNuevos.add(new TrabajoNuevo(id, nombreArchivo, tiempoLlegada,
+                prioridad, dirSwap, tamano, archivoCopiado));
+        return null;
     }
 
     private BCP crearProcesoEnParticion(List<Instruccion> instrucciones, int base, int id) {
         int direccionBase = memoria.reservarBloqueBCP();
         if (direccionBase == -1) return null;
 
-        BCP bcp = new BCP(memoria, direccionBase, id, 1);
+        BCP bcp = new BCP(memoria, direccionBase, id, PRIORIDAD_DEFAULT);
         admitirEnParticion(bcp, instrucciones, base);
         return bcp;
+    }
+
+    /* ============ PROCESOS EN NEW (sin BCP) <-> READY ============ */
+
+    /**
+     * Devuelve un proceso READY al estado NEW: copia su programa al swap,
+     * libera su particion y DESTRUYE su BCP. Solo aplica si todavia no
+     * empezo a ejecutar.
+     *
+     * @return true si el proceso quedo en NEW
+     */
+    private boolean enviarANuevo(BCP bcp) {
+        int id = bcp.getId();
+        int base = bcp.getBase();
+        int tamano = bcp.getAlcance();
+        String nombre = nombresPorId.getOrDefault(id, "proceso" + id + ".asm");
+
+        List<Instruccion> instrucciones = new ArrayList<>();
+        for (int i = 0; i < tamano; i++) {
+            Object o = memoria.leer(base + i);
+            if (o instanceof Instruccion) instrucciones.add((Instruccion) o);
+        }
+
+        String error = guardarEnSwap(instrucciones, id, nombre,
+                bcp.getTiempoLlegada(), bcp.getPrioridad(), true);
+        if (error != null) {
+            System.out.println("[NEW] No se pudo mandar ID " + id + " a swap: " + error
+                + " Sigue en RAM.");
+            return false;
+        }
+
+        listaProcesos.sacar(bcp);
+        particionador.liberarParticion(base, tamano, id);
+        memoria.liberarBloqueUsuario(base, tamano);
+        memoria.liberarBloqueBCP(bcp.getDireccionBase());
+
+        System.out.println("[NEW] Proceso " + id + " vuelve a NEW (sin BCP, en swap).");
+        return true;
+    }
+
+    /**
+     * Un proceso solo puede volver a NEW si esta en la cola de listos, sin
+     * haber ejecutado nada.
+     */
+    private boolean puedeVolverANuevo(BCP bcp) {
+        return listaProcesos.contiene(bcp)
+                && bcp.getEstado() == EstadoProceso.READY
+                && !bcp.tieneInicioMarcado();
+    }
+
+    /**
+     * Swap-in: reserva particion y bloque de BCP, lee el programa desde la
+     * direccion de swap, CREA el BCP (mismo id), carga las instrucciones
+     * en RAM y deja el proceso READY. El BCP queda en listaProcesos.
+     *
+     * @return el BCP creado, o null si no hay particion/BCP libre
+     *         (el trabajo sigue en NEW)
+     */
+    private BCP admitirTrabajo(TrabajoNuevo t) {
+        int tamano = t.getTamano();
+
+        int base = particionador.asignarParticion(tamano, t.getId());
+        if (base == -1) return null;
+
+        int direccionBCP = memoria.reservarBloqueBCP();
+        if (direccionBCP == -1) {
+            particionador.liberarParticion(base, tamano, t.getId());
+            return null;
+        }
+
+        Object[] instruccionesArr = disco.leerBloqueSwap(t.getDirSwap(), tamano);
+        List<Instruccion> instrucciones = new ArrayList<>();
+        for (Object obj : instruccionesArr) {
+            if (obj instanceof Instruccion) instrucciones.add((Instruccion) obj);
+        }
+
+        if (!t.isArchivoCopiado()) {
+            copiarAsmAArchivos(t.getNombre(), instrucciones);
+        }
+
+        BCP bcp = new BCP(memoria, direccionBCP, t.getId(), t.getPrioridad());
+        bcp.setTiempoLlegada(t.getTiempoLlegada());
+        admitirEnParticion(bcp, instrucciones, base);
+
+        // Limpiar el swap, el indice y la ListaDeTrabajos
+        disco.liberarBloqueSwap(t.getDirSwap(), tamano);
+        if (t.getNombre() != null && disco.existe(t.getNombre(), Disco.TIPO_ASM)) {
+            disco.eliminarDelIndice(t.getNombre(), Disco.TIPO_ASM);
+        }
+        listaDeTrabajos.eliminar(t.getNombre(), t.getDirSwap());
+        trabajosNuevos.remove(t);
+
+        System.out.println("[NEW->READY] Proceso " + t.getId() + " (" + t.getNombre()
+            + ") cargado en RAM base=" + base);
+        return bcp;
+    }
+
+    /** Copia de los trabajos en NEW ordenada por llegada (TL, luego id). */
+    private List<TrabajoNuevo> trabajosPorLlegada() {
+        List<TrabajoNuevo> orden = new ArrayList<>(trabajosNuevos);
+        orden.sort(Comparator.comparingInt(TrabajoNuevo::getTiempoLlegada)
+                             .thenComparingInt(TrabajoNuevo::getId));
+        return orden;
+    }
+
+    /**
+     * Admite a los procesos NEW cuyo TL ya paso (TL < relojGlobal: el paso
+     * actual cubre de relojGlobal-1 a relojGlobal). Respeta el orden de
+     * llegada: si el primero no tiene particion, los demas esperan.
+     *
+     * Los BCP devueltos se SACAN de listaProcesos para que el resto de
+     * ejecutarUnPaso decida el orden de entrada a la cola.
+     */
+    private List<BCP> admitirLlegados() {
+        List<BCP> admitidos = new ArrayList<>();
+        for (TrabajoNuevo t : trabajosPorLlegada()) {
+            if (t.getTiempoLlegada() >= relojGlobal) continue;   // aun no llega
+
+            BCP bcp = admitirTrabajo(t);
+            if (bcp == null) {
+                System.out.println("[RELOJ " + relojGlobal + "] Proceso " + t.getId()
+                    + " ya llego pero no hay particion libre: sigue en NEW.");
+                break;
+            }
+            listaProcesos.sacar(bcp);
+            admitidos.add(bcp);
+        }
+        return admitidos;
+    }
+
+    private TrabajoNuevo buscarTrabajoNuevo(int id) {
+        for (TrabajoNuevo t : trabajosNuevos) {
+            if (t.getId() == id) return t;
+        }
+        return null;
     }
 
     /* ==================== EJECUCIÓN PASO A PASO ==================== */
@@ -281,13 +478,8 @@ public class GestorProcesos {
         //    entra quien llego a mas tardar en relojGlobal-1. Con "<=" un
         //    proceso que llega en t competiria por el intervalo de t-1 a t,
         //    un segundo antes de llegar.
-        List<BCP> llegadosAhora = new ArrayList<>();
-        for (BCP bcp : procesosPendientesLlegada) {
-            if (bcp.getTiempoLlegada() < relojGlobal) {
-                llegadosAhora.add(bcp);
-            }
-        }
-        procesosPendientesLlegada.removeAll(llegadosAhora);
+        //    Aqui se CREA el BCP de los procesos que salen de NEW.
+        List<BCP> llegadosAhora = admitirLlegados();
 
         // 3. Si NO usa quantum: agregar llegadas directo + expulsiones SRT
         if (!usaQuantum()) {
@@ -592,47 +784,22 @@ public class GestorProcesos {
         reactivarSiguienteProceso();
     }
 
+    /**
+     * Al liberarse una particion, admite a los procesos NEW que YA habian
+     * llegado (TL < relojGlobal) pero no tenian espacio. Los que aun no
+     * llegan entran por el paso 2 de ejecutarUnPaso. FCFS por llegada.
+     */
     private void reactivarSiguienteProceso() {
-        if (listaDeTrabajos.estaVacia()) return;
-
-        Object[] trabajo = listaDeTrabajos.verPrimero();
-        if (trabajo == null) return;
-
-        String nombreArchivo = (String) trabajo[0];
-        int inicioSwap = (Integer) trabajo[1];
-        int finSwap = (Integer) trabajo[2];
-        int tamanoInstrucciones = (finSwap - inicioSwap) + 1;
-        int id = siguienteId;
-
-        int base = particionador.asignarParticion(tamanoInstrucciones, id);
-        if (base == -1) return;
-
-        int direccionBase = memoria.reservarBloqueBCP();
-        if (direccionBase == -1) {
-            particionador.liberarParticion(base, tamanoInstrucciones, id);
-            return;
+        for (TrabajoNuevo t : trabajosPorLlegada()) {
+            if (t.getTiempoLlegada() >= relojGlobal) continue;
+            if (admitirTrabajo(t) == null) break;   // sin espacio: esperar
         }
-
-        Object[] instruccionesArr = disco.leerBloqueSwap(inicioSwap, tamanoInstrucciones);
-        List<Instruccion> instrucciones = new ArrayList<>();
-        for (Object obj : instruccionesArr) {
-            if (obj instanceof Instruccion) instrucciones.add((Instruccion) obj);
-        }
-
-        int nuevoInicioArchivos = disco.reservarBloqueArchivo(tamanoInstrucciones);
-        if (nuevoInicioArchivos != -1) disco.escribirBloqueArchivo(nuevoInicioArchivos, instruccionesArr);
-
-        if (nombreArchivo != null && disco.existe(nombreArchivo, Disco.TIPO_ASM)) {
-            disco.eliminarDelIndice(nombreArchivo, Disco.TIPO_ASM);
-        }
-
-        disco.liberarBloqueSwap(inicioSwap, tamanoInstrucciones);
-        listaDeTrabajos.sacarPrimero();
-
-        BCP bcpRestaurado = new BCP(memoria, direccionBase, id, 1);
-        admitirEnParticion(bcpRestaurado, instrucciones, base);
     }
 
+    /**
+     * Carga las instrucciones en la particion, deja el BCP en READY y lo
+     * agrega a la cola de listos.
+     */
     private void admitirEnParticion(BCP bcp, List<Instruccion> instrucciones, int base) {
         bcp.setBase(base);
         bcp.setAlcance(instrucciones.size());
@@ -673,7 +840,13 @@ public class GestorProcesos {
     }
 
     public boolean hayProcesosActivos() {
-        if (!procesosPendientesLlegada.isEmpty()) return true;
+        // Un proceso en NEW cuyo TL aun no pasa es trabajo pendiente.
+        // (Uno que ya llego pero no cabe en RAM no cuenta por si solo:
+        // se reactiva al terminar otro proceso; si no hay ninguno, no
+        // progresaria nunca y la simulacion no debe quedar en bucle.)
+        for (TrabajoNuevo t : trabajosNuevos) {
+            if (t.getTiempoLlegada() >= relojGlobal) return true;
+        }
         for (Nucleo n : gestorCPUs.getNucleos()) {
             if (n.estaOcupado()) {
                 BCP b = n.getBcpActual();
@@ -706,7 +879,13 @@ public class GestorProcesos {
     public ListaDeTrabajos getListaDeTrabajos() { return listaDeTrabajos; }
     public List<BCPTerminado> getProcesosTerminados() { return procesosTerminados; }
     public List<BCP> getProcesosBloqueadosInput() { return new ArrayList<>(procesosBloqueadosInput); }
-    public List<BCP> getProcesosPendientesLlegada() { return new ArrayList<>(procesosPendientesLlegada); }
+
+    /** Procesos en estado NEW (sin BCP), en el orden en que se registraron. */
+    public List<TrabajoNuevo> getTrabajosNuevos() { return new ArrayList<>(trabajosNuevos); }
+
+    /** Nombre del .asm de un proceso, o null si no se conoce. */
+    public String getNombreArchivo(int id) { return nombresPorId.get(id); }
+
     public Disco getDisco() { return disco; }
     public ParticionadorDinamico getParticionador() { return particionador; }
     public int getQuantumRR() { return quantumRR; }
@@ -724,33 +903,50 @@ public class GestorProcesos {
         }
     }
 
+    /**
+     * Aplica los tiempos de llegada elegidos en la GUI.
+     *
+     *  - Proceso READY (con BCP) y TL futuro: vuelve a NEW (se destruye su
+     *    BCP y su programa pasa al swap). Solo si aun no ejecuto.
+     *  - Proceso NEW y TL ya alcanzado: se crea su BCP y pasa a READY.
+     *  - Proceso NEW y TL futuro: solo se actualiza el TL.
+     */
     public void actualizarTiemposLlegada(Object[][] tiempos) {
         for (Object[] t : tiempos) {
             int id = (Integer) t[0];
             int tiempo = (Integer) t[1];
 
-            BCP bcpEncontrado = buscarProcesoPorId(id);
-            if (bcpEncontrado == null) continue;
-
-            bcpEncontrado.setTiempoLlegada(tiempo);
-
-            // Si el proceso ESTA en la lista de listos y el nuevo TL es futuro:
-            // moverlo a pendientes.
-            if (tiempo > relojGlobal) {
-                if (listaProcesos.contiene(bcpEncontrado)) {
-                    listaProcesos.sacar(bcpEncontrado);
-                    procesosPendientesLlegada.add(bcpEncontrado);
-                    System.out.println("[RELOJ] Proceso " + id
-                        + " movido a pendientes (llega en t=" + tiempo + ")");
+            // Caso 1: el proceso esta en NEW (no tiene BCP)
+            TrabajoNuevo nuevo = buscarTrabajoNuevo(id);
+            if (nuevo != null) {
+                nuevo.setTiempoLlegada(tiempo);
+                if (tiempo <= relojGlobal) {
+                    BCP bcp = admitirTrabajo(nuevo);
+                    if (bcp != null) {
+                        System.out.println("[RELOJ] Proceso " + id
+                            + " movido a READY (TL=" + tiempo + " <= reloj=" + relojGlobal + ")");
+                    } else {
+                        System.out.println("[RELOJ] Proceso " + id
+                            + " sin particion libre; sigue en NEW.");
+                    }
                 }
-            } else {
-                // Si el proceso ESTA en pendientes y el nuevo TL ya paso:
-                // moverlo a la lista de listos.
-                if (procesosPendientesLlegada.contains(bcpEncontrado)) {
-                    procesosPendientesLlegada.remove(bcpEncontrado);
-                    listaProcesos.agregar(bcpEncontrado);
+                continue;
+            }
+
+            // Caso 2: el proceso tiene BCP
+            BCP bcp = buscarProcesoPorId(id);
+            if (bcp == null) continue;
+
+            bcp.setTiempoLlegada(tiempo);
+
+            if (tiempo > relojGlobal) {
+                if (puedeVolverANuevo(bcp)) {
+                    enviarANuevo(bcp);
                     System.out.println("[RELOJ] Proceso " + id
-                        + " movido a READY (TL=" + tiempo + " <= reloj=" + relojGlobal + ")");
+                        + " pasa a NEW (llega en t=" + tiempo + ")");
+                } else {
+                    System.out.println("[RELOJ] Proceso " + id
+                        + " ya empezo a ejecutar: no puede volver a NEW.");
                 }
             }
         }
@@ -758,7 +954,8 @@ public class GestorProcesos {
 
     /**
      * Actualiza la prioridad de los procesos segun la matriz recibida
-     * de la GUI.
+     * de la GUI. Funciona con procesos que tienen BCP y con los que
+     * estan en NEW (la prioridad se guarda en el TrabajoNuevo).
      *
      * @param prioridades matriz de {id, prioridad}
      */
@@ -769,6 +966,12 @@ public class GestorProcesos {
             int id = (Integer) fila[0];
             int prioridad = (Integer) fila[1];
 
+            TrabajoNuevo nuevo = buscarTrabajoNuevo(id);
+            if (nuevo != null) {
+                nuevo.setPrioridad(prioridad);
+                continue;
+            }
+
             BCP bcpEncontrado = buscarProcesoPorId(id);
             if (bcpEncontrado != null) {
                 bcpEncontrado.setPrioridad(prioridad);
@@ -777,7 +980,8 @@ public class GestorProcesos {
     }
 
     /**
-     * Busca un proceso por ID en todos los lugares posibles.
+     * Busca un proceso CON BCP por ID (los de NEW no tienen BCP: ver
+     * buscarTrabajoNuevo).
      */
     private BCP buscarProcesoPorId(int id) {
         // 1. Nucleos
@@ -793,12 +997,7 @@ public class GestorProcesos {
             if (bcp.getId() == id) return bcp;
         }
 
-        // 3. Pendientes de llegada
-        for (BCP bcp : procesosPendientesLlegada) {
-            if (bcp.getId() == id) return bcp;
-        }
-
-        // 4. Bloqueados de input
+        // 3. Bloqueados de input
         for (BCP bcp : procesosBloqueadosInput) {
             if (bcp.getId() == id) return bcp;
         }

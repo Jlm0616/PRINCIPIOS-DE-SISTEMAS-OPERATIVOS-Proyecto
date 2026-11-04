@@ -755,13 +755,13 @@ public class VentanaPrincipal extends JFrame {
             }
         }
 
-        // 2. Actualizar los paneles
+        // 2. Actualizar los paneles.
+        //    Los procesos en NEW (sin BCP) vienen de getTrabajosNuevos().
         panelProcesos.actualizarLista(
                 gestor.getListaProcesos(),
                 gestor.getGestorCPUs().getNucleos(),
                 gestor.getProcesosBloqueadosInput(),
-                gestor.getListaDeTrabajos(),
-                gestor.getProcesosPendientesLlegada());   // ← NUEVO
+                gestor.getTrabajosNuevos());
 
         panelMemoria.actualizar(memoria, irsPorCPU);
         panelDisco.actualizar(disco);

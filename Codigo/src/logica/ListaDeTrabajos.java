@@ -24,10 +24,10 @@ import java.util.List;
  *   - Se elimina la entrada de la ListaDeTrabajos (nombre = null).
  *   - El indice del disco se actualiza (zona VIRTUAL -> PRINCIPAL).
  *
- * El BCP NO existe hasta que el proceso entra a RAM.
- *
- * IMPORTANTE: se mantiene el uso de ProcesoEnEspera para los
- * metadatos del proceso suspendido (id, estado, nombre).
+ * El BCP NO existe hasta que el proceso entra a RAM (estado NEW).
+ * Los datos extra del proceso en NEW (id, tiempo de llegada, prioridad)
+ * los lleva el GestorProcesos en objetos TrabajoNuevo; esta lista es
+ * solo el espejo en memoria del kernel.
  */
 public class ListaDeTrabajos {
 
@@ -90,6 +90,31 @@ public class ListaDeTrabajos {
         memoria.escribirListaTrabajos(entrada, 3, null);
 
         return new Object[]{nombre, inicio, fin, zona};
+    }
+
+    /**
+     * Elimina una entrada concreta (la que tenga ese nombre y ese inicio
+     * en el disco). Se usa cuando un proceso en NEW llega a su tiempo de
+     * llegada y sale del swap: ya no es el primero de la cola, es el que
+     * le toca por su TL.
+     *
+     * @return true si se encontro y elimino, false si no estaba
+     */
+    public boolean eliminar(String nombre, int inicio) {
+        if (nombre == null) return false;
+
+        int maxEntradas = memoria.getMaxArchivos();
+        for (int i = 0; i < maxEntradas; i++) {
+            Object n = memoria.leerListaTrabajos(i, 0);
+            Object ini = memoria.leerListaTrabajos(i, 1);
+            if (n != null && n.equals(nombre) && ini != null && ini.equals(inicio)) {
+                for (int campo = 0; campo < 4; campo++) {
+                    memoria.escribirListaTrabajos(i, campo, null);
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
