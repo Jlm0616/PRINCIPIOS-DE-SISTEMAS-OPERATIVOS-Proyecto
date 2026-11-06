@@ -5,6 +5,7 @@ import logica.cpu.Nucleo;
 import logica.estadisticas.IntervaloEjecucion;
 import logica.planificacion.PlanificadorFCFS;
 import logica.planificacion.PlanificadorHRRN;
+import logica.planificacion.PlanificadorLottery;
 import logica.planificacion.PlanificadorPrioridad;
 import logica.planificacion.PlanificadorRR;
 import logica.planificacion.PlanificadorSelfishRR;
@@ -39,6 +40,7 @@ import java.util.Map;
  *  - RR:  expulsa por quantum (reglas R4/R5 segun cola vacia o no).
  *  - HRRN: elige por mayor (W+S)/S. Necesita el relojGlobal.
  *  - Prioridad: elige por MENOR prioridad numerica (Stallings).
+ *  - Lottery: elige al azar por boletos. Es apropiativo por quantum.
  *  - DIAGRAMA DE GANTT: registra que proceso ejecuto en cada instante.
  *
  * ESTADO NEW (tiempo de llegada futuro):
@@ -95,7 +97,7 @@ public class GestorProcesos {
     private Map<Integer, List<IntervaloEjecucion>> intervalosPorProceso = new HashMap<>();
     private Map<Integer, Integer> cpuPorProceso = new HashMap<>();
 
-    // === (RR): contador de quantum por proceso ===
+    // === (RR, Lottery): contador de quantum por proceso ===
     private Map<Integer, Integer> quantumConsumidoPorProceso = new HashMap<>();
     private int quantumRR = QUANTUM_DEFAULT;
 
@@ -178,6 +180,8 @@ public class GestorProcesos {
             this.planificador.setEstrategia(new PlanificadorPrioridad());
         } else if (PlanificadorSelfishRR.NOMBRE.equalsIgnoreCase(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorSelfishRR(quantumRR, srrA, srrB));
+        } else if ("Lottery".equalsIgnoreCase(algoritmoCPU)) {
+            this.planificador.setEstrategia(new PlanificadorLottery());
         } else {
             this.planificador.setEstrategia(new PlanificadorFCFS());
         }
@@ -493,7 +497,7 @@ public class GestorProcesos {
             }
         }
 
-        // 3.5. RR y Selfish RR: rotacion por quantum CON orden especial de llegadas.
+        // 3.5. RR, Selfish RR y Lottery: rotacion por quantum CON orden especial de llegadas.
         //      En RR entran a la cola de turnos los que llegan; en Selfish RR,
         //      los que se aceptan en este segundo.
         if (usaQuantum()) {
@@ -551,7 +555,7 @@ public class GestorProcesos {
         List<BCP> terminadosEnEstePaso = new ArrayList<>();
         gestorCPUs.ejecutarPasoEnTodos(terminadosEnEstePaso);
 
-        // 7. Registrar ejecuciones + incrementar contador de quantum (RR y Selfish RR)
+        // 7. Registrar ejecuciones + incrementar contador de quantum (RR, Selfish RR y Lottery)
         for (Map.Entry<Integer, Integer> e : ejecucionesEnPaso.entrySet()) {
             int idProceso = e.getKey();
             registrarEjecucion(idProceso, e.getValue(), relojGlobal);
@@ -613,10 +617,17 @@ public class GestorProcesos {
     }
 
     /**
-     * @return true si la estrategia reparte la CPU por quantum (RR o Selfish RR).
+     * @return true si la estrategia activa es Lottery.
+     */
+    private boolean esLottery() {
+        return "Lottery".equals(planificador.getNombreEstrategia());
+    }
+
+    /**
+     * @return true si la estrategia reparte la CPU por quantum (RR, Selfish RR o Lottery).
      */
     private boolean usaQuantum() {
-        return esRR() || esSelfishRR();
+        return esRR() || esSelfishRR() || esLottery();
     }
 
     /**
@@ -689,7 +700,7 @@ public class GestorProcesos {
     }
 
     /**
-     * RR: recorre los nucleos ocupados y, si el proceso en CPU agoto
+     * RR, Lottery: recorre los nucleos ocupados y, si el proceso en CPU agoto
      * su quantum, lo expulsa y lo reencola al final.
      */
     private void procesarRotacionPorQuantum() {
@@ -705,7 +716,7 @@ public class GestorProcesos {
 
             if (consumido < quantumRR) continue;
 
-            System.out.println("[RR] Expulsando ID " + idProceso
+            System.out.println("[RR/Lottery] Expulsando ID " + idProceso
                 + " (quantum " + consumido + "/" + quantumRR + " agotado)");
 
             nucleo.expulsarProceso();

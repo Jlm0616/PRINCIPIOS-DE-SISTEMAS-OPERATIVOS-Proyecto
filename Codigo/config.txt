@@ -1,6 +1,6 @@
 #Configuracion del Sistema - Proyecto 2 SO
-#Tue Nov 03 22:00:15 CST 2026
-algoritmo_cpu=SPN
+#Thu Nov 05 23:40:00 CST 2026
+algoritmo_cpu=Lottery
 cpus=1
 disco=512
 kernel=909

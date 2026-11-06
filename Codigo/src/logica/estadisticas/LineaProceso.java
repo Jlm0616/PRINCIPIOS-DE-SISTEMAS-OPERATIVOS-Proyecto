@@ -31,7 +31,7 @@ public class LineaProceso {
     private final int id;
     private final int inicio;        // instante simulado de inicio (o -1)
     private final int fin;           // instante simulado de fin (o -1)
-    private final int duracion;      // fin - inicio + 1 (convencion del curso)
+    private final int duracion;      // rafaga original (tiempo efectivo de CPU)
     private final int turnaround;    // ya calculado en BCPTerminado
     private final double trTs;       // ya calculado en BCPTerminado
     private final int prioridad;
@@ -64,18 +64,17 @@ public class LineaProceso {
     }
 
     /**
-     * Duracion segun la convencion del curso:
-     *   duracion = fin - inicio + 1
+     * Devuelve el tiempo efectivo que el proceso estuvo en la CPU.
      *
-     * Si los tiempos no estan marcados (-1), devuelve 0.
+     * En algoritmos apropiativos (RR, Lottery, Selfish RR), calcular
+     * "fin - inicio" incluye el tiempo de espera en la cola, lo cual
+     * infla artificialmente la duracion (ej. 14s en vez de 3s).
+     *
+     * La duracion real de CPU es exactamente la ráfaga original
+     * (el alcance del proceso).
      */
     private static int calcularDuracion(BCPTerminado pt) {
-        int ini = pt.getTiempoInicio();
-        int fin = pt.getTiempoFin();
-        if (ini == BCPTerminado.TIEMPO_NO_MARCADO || fin == BCPTerminado.TIEMPO_NO_MARCADO) {
-            return 0;
-        }
-        return fin - ini + 1;
+        return pt.getAlcance();
     }
 
     /* ==================== GETTERS ==================== */

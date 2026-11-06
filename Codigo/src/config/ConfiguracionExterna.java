@@ -20,13 +20,10 @@ import java.util.Properties;
  *   - max_procesos = 5 por CPU.
  *
  * PROYECTO 2:
- *   - Algoritmos validos: FCFS, SPN, SRT, RR, HRRN, Prioridad, Selfish RR.
- *   - Se iran agregando los demas (Lottery, Guaranteed, MLFQ) cuando
- *     se implementen.
- *   - quantum aplica para RR y Selfish RR. Default = 1.
- *   - srr_a y srr_b solo aplican para Selfish RR: cuanto sube por
- *     segundo la prioridad de un proceso nuevo (a) y la de uno
- *     aceptado (b). Default a = 2, b = 1.
+ *   - Algoritmos validos: FCFS, SPN, SRT, RR, HRRN, Prioridad, Selfish RR, Lottery.
+ *   - Se iran agregando los demas (Guaranteed, MLFQ) cuando se implementen.
+ *   - quantum aplica para RR, Lottery y Selfish RR. Default = 1.
+ *   - srr_a y srr_b solo aplican para Selfish RR.
  */
 public class ConfiguracionExterna {
 
@@ -48,7 +45,7 @@ public class ConfiguracionExterna {
 
     // Algoritmos de CPU soportados actualmente.
     private static final String[] ALGORITMOS_VALIDOS = {
-        "FCFS", "SPN", "SRT", "RR", "HRRN", "PRIORIDAD", "SELFISH RR"
+        "FCFS", "SPN", "SRT", "RR", "HRRN", "PRIORIDAD", "SELFISH RR", "LOTTERY"
     };
 
     // Valores mínimos absolutos (si el usuario pone menos, se corrige)
@@ -270,7 +267,7 @@ public class ConfiguracionExterna {
             srrB = SRR_B_DEFAULT;
         }
 
-        // ==== QUANTUM (aplica para RR y Selfish RR) ====
+        // ==== QUANTUM (aplica para RR, Lottery y Selfish RR) ====
         if (quantum < QUANTUM_MINIMO) {
             agregarCorreccion("quantum=" + quantum
                     + " invalido (minimo " + QUANTUM_MINIMO + "). Usando "

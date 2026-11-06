@@ -17,13 +17,13 @@ import java.awt.Insets;
  * Panel de configuracion de las CPUs.
  *
  * Permite elegir la cantidad de núcleos y el algoritmo de planificación.
- * Para RR y Selfish RR, muestra un campo adicional de quantum.
+ * Para RR, Lottery y Selfish RR, muestra un campo adicional de quantum.
  * Para Selfish RR, muestra además a (incremento de los nuevos) y
  * b (incremento de los aceptados).
  *
  * PROYECTO 2: algoritmos disponibles actualmente:
- *   FCFS, SPN, SRT, RR, HRRN, Prioridad, Selfish RR.
- * Se irán agregando los demás (Lottery, Guaranteed, MLFQ).
+ *   FCFS, SPN, SRT, RR, HRRN, Prioridad, Selfish RR, Lottery.
+ * Se irán agregando los demás (Guaranteed, MLFQ).
  *
  * SOLID:
  *  - SRP: solo maneja la configuracion visual de CPUs y algoritmo.
@@ -39,7 +39,7 @@ public class PanelConfigCPU extends JPanel {
     private JComboBox<Integer> comboCPUs;
     private JComboBox<String> comboAlgoritmo;
 
-    // Campo de quantum (solo visible cuando se selecciona RR o Selfish RR)
+    // Campo de quantum (solo visible cuando se selecciona RR, Lottery o Selfish RR)
     private JLabel lblQuantum;
     private JTextField txtQuantum;
 
@@ -120,7 +120,8 @@ public class PanelConfigCPU extends JPanel {
             "RR",
             "HRRN",
             "Prioridad",
-            SELFISH_RR
+            SELFISH_RR,
+            "Lottery"
         });
         seleccionarAlgoritmo(algoritmoActual);
         comboAlgoritmo.setFont(Paleta.FUENTE_MONO);
@@ -128,7 +129,7 @@ public class PanelConfigCPU extends JPanel {
         gbc.weightx = 1;
         add(comboAlgoritmo, gbc);
 
-        // ==== Quantum (solo visible para RR y Selfish RR) ====
+        // ==== Quantum (solo visible para RR, Lottery y Selfish RR) ====
         lblQuantum = crearLabelCampo("Quantum");
         gbc.gridx = 0;
         gbc.gridy = 2;
@@ -197,19 +198,23 @@ public class PanelConfigCPU extends JPanel {
 
     /**
      * Muestra u oculta los campos de quantum, a y b según el algoritmo
-     * seleccionado. El quantum aplica para RR y Selfish RR; a y b solo
-     * para Selfish RR.
+     * seleccionado. El quantum aplica para RR, Lottery y Selfish RR; a y b
+     * solo para Selfish RR.
      */
     private void actualizarVisibilidadQuantum() {
         Object seleccionado = comboAlgoritmo.getSelectedItem();
         boolean esSelfishRR = SELFISH_RR.equals(seleccionado);
-        boolean usaQuantum = "RR".equals(seleccionado) || esSelfishRR;
+        boolean usaQuantum = "RR".equals(seleccionado) || esSelfishRR 
+                          || "Lottery".equals(seleccionado);
+        
         lblQuantum.setVisible(usaQuantum);
         txtQuantum.setVisible(usaQuantum);
+        
         lblSrrA.setVisible(esSelfishRR);
         txtSrrA.setVisible(esSelfishRR);
         lblSrrB.setVisible(esSelfishRR);
         txtSrrB.setVisible(esSelfishRR);
+        
         revalidate();
         repaint();
     }
@@ -251,7 +256,7 @@ public class PanelConfigCPU extends JPanel {
     }
 
     /**
-     * Devuelve el quantum configurado para RR.
+     * Devuelve el quantum configurado para RR, Lottery o Selfish RR.
      * Si el campo es inválido (< 1), devuelve 1 (mínimo).
      *
      * @return quantum >= 1

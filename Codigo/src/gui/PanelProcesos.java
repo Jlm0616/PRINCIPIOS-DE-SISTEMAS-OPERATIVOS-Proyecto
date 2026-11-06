@@ -54,6 +54,8 @@ public class PanelProcesos extends JPanel {
 
     private List<BCP> listaProcesosTemporal = new ArrayList<>();
     private List<TrabajoNuevo> trabajosNuevosTemporal = new ArrayList<>();
+    
+    private String algoritmoActual = ""; // <-- NUEVO
 
     private JLabel lblId;
     private JLabel lblPC;
@@ -81,7 +83,8 @@ public class PanelProcesos extends JPanel {
         JPanel panelSuperior = new JPanel(new BorderLayout(5, 5));
         panelSuperior.setOpaque(false);
 
-        modeloProcesos = new DefaultTableModel(new Object[]{"Proceso / CPU", "Estado"}, 0) {
+        // NUEVO: Tercera columna "Boletos"
+        modeloProcesos = new DefaultTableModel(new Object[]{"Proceso / CPU", "Estado", "Boletos"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -234,6 +237,19 @@ public class PanelProcesos extends JPanel {
             }
         }
     }
+    
+    // NUEVO: Setter para el algoritmo actual
+    public void setAlgoritmoActual(String algoritmo) {
+        this.algoritmoActual = algoritmo != null ? algoritmo : "";
+        // Ocultar o mostrar la columna 2 (Boletos)
+        if ("Lottery".equalsIgnoreCase(this.algoritmoActual)) {
+            tablaProcesos.getColumnModel().getColumn(2).setMinWidth(50);
+            tablaProcesos.getColumnModel().getColumn(2).setMaxWidth(50);
+        } else {
+            tablaProcesos.getColumnModel().getColumn(2).setMinWidth(0);
+            tablaProcesos.getColumnModel().getColumn(2).setMaxWidth(0);
+        }
+    }
 
     public void actualizarLista(ListaProcesos listaProcesos,
                                 List<Nucleo> nucleos,
@@ -246,17 +262,20 @@ public class PanelProcesos extends JPanel {
 
         modeloProcesos.setRowCount(0);
         Set<Integer> idsAgregados = new HashSet<>();
+        
+        boolean esLottery = "Lottery".equalsIgnoreCase(algoritmoActual);
 
         for (Nucleo nucleo : nucleos) {
             if (nucleo.estaOcupado()) {
                 BCP bcp = nucleo.getBcpActual();
                 modeloProcesos.addRow(new Object[]{
                     "CPU " + nucleo.getIdNucleo() + " -> ID " + bcp.getId(),
-                    bcp.getEstado().toString()
+                    bcp.getEstado().toString(),
+                    esLottery ? bcp.getRafaga() : ""
                 });
                 idsAgregados.add(bcp.getId());
             } else {
-                modeloProcesos.addRow(new Object[]{ "CPU " + nucleo.getIdNucleo(), "LIBRE" });
+                modeloProcesos.addRow(new Object[]{ "CPU " + nucleo.getIdNucleo(), "LIBRE", "" });
             }
         }
 
@@ -264,7 +283,8 @@ public class PanelProcesos extends JPanel {
             for (BCP bcp : listaProcesos.toList()) {
                 if (idsAgregados.add(bcp.getId())) {
                     modeloProcesos.addRow(new Object[]{
-                        "ID " + bcp.getId() + " (En RAM)", bcp.getEstado().toString()
+                        "ID " + bcp.getId() + " (En RAM)", bcp.getEstado().toString(),
+                        esLottery ? bcp.getRafaga() : ""
                     });
                 }
             }
@@ -275,7 +295,8 @@ public class PanelProcesos extends JPanel {
                 modeloProcesos.addRow(new Object[]{
                     "ID " + t.getId() + " " + t.getNombre()
                         + " (Espera TL=" + t.getTiempoLlegada() + ")",
-                    "NEW"
+                    "NEW",
+                    esLottery ? t.getTamano() : ""
                 });
             }
         }
@@ -284,7 +305,8 @@ public class PanelProcesos extends JPanel {
             for (BCP bcp : procesosBloqueadosInput) {
                 if (idsAgregados.add(bcp.getId())) {
                     modeloProcesos.addRow(new Object[]{
-                        "ID " + bcp.getId() + " (Input)", bcp.getEstado().toString()
+                        "ID " + bcp.getId() + " (Input)", bcp.getEstado().toString(),
+                        esLottery ? bcp.getRafaga() : ""
                     });
                 }
             }

@@ -666,6 +666,9 @@ public class VentanaPrincipal extends JFrame {
             return " (quantum=" + quantumRRActual + ", a=" + srrAActual
                     + ", b=" + srrBActual + ")";
         }
+        if ("Lottery".equalsIgnoreCase(algoritmoCPUActual)) {
+            return " (quantum=" + quantumRRActual + ")";
+        }
         return "";
     }
 
@@ -757,6 +760,7 @@ public class VentanaPrincipal extends JFrame {
 
         // 2. Actualizar los paneles.
         //    Los procesos en NEW (sin BCP) vienen de getTrabajosNuevos().
+        panelProcesos.setAlgoritmoActual(algoritmoCPUActual);
         panelProcesos.actualizarLista(
                 gestor.getListaProcesos(),
                 gestor.getGestorCPUs().getNucleos(),
