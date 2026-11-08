@@ -7,6 +7,7 @@ import logica.planificacion.PlanificadorFCFS;
 import logica.planificacion.PlanificadorGuaranteed;
 import logica.planificacion.PlanificadorHRRN;
 import logica.planificacion.PlanificadorLottery;
+import logica.planificacion.PlanificadorMLFQ;
 import logica.planificacion.PlanificadorPrioridad;
 import logica.planificacion.PlanificadorRR;
 import logica.planificacion.PlanificadorSelfishRR;
@@ -25,6 +26,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Fachada de orquestación del ciclo de vida y ejecución de procesos.
@@ -42,17 +44,22 @@ import java.util.Map;
  *  - HRRN: elige por mayor (W+S)/S. Necesita el relojGlobal.
  *  - Prioridad: elige por MENOR prioridad numerica (Stallings).
  *  - Lottery: elige al azar por boletos. Es apropiativo por quantum.
+ *  - MLFQ: 3 niveles (Q1, Q2, Q3) con quantums 1, 2, 4. Apropiativo por
+ *    quantum. Un proceso nuevo entra a Q1; al agotar su quantum baja de
+ *    nivel; en Q3 se queda (RR puro). Al volver de I/O vuelve a Q1.
  *  - DIAGRAMA DE GANTT: registra que proceso ejecuto en cada instante.
  *
  * ESTADO NEW (tiempo de llegada futuro):
  *  - Un proceso cuyo TL aun no llega NO tiene BCP. Su programa esta en la
  *    zona Swap del disco y se representa con un TrabajoNuevo (id, nombre,
  *    TL, prioridad, direccion de swap).
+ *  - El TL se genera al cargar (RandomizadorTiempos: [reloj, reloj + 6]).
+ *    Si es futuro, el proceso va directo al swap, sin particion ni BCP.
  *  - Cuando relojGlobal supera su TL y hay particion libre, se crea el BCP
  *    (con el mismo id), se cargan las instrucciones en RAM y pasa a READY.
  *  - Un proceso es un TrabajoNuevo O un BCP, nunca los dos a la vez.
- *  - Los trabajos que no cupieron en RAM al cargar usan el mismo mecanismo
- *    (TL = 0): esperan en NEW hasta que haya particion libre.
+ *  - Los trabajos que ya llegaron pero no caben en RAM tambien esperan en
+ *    NEW (en swap) hasta que haya particion libre.
  */
 public class GestorProcesos {
 
@@ -78,7 +85,7 @@ public class GestorProcesos {
     private ParticionadorDinamico particionador;
     private Disco disco;
 
-    // === NUEVO: Randomizador de tiempos ===
+    // Genera el tiempo de llegada aleatorio de cada proceso al cargarlo
     private RandomizadorTiempos randomizador = new RandomizadorTiempos();
 
     private int siguienteId;
@@ -88,17 +95,19 @@ public class GestorProcesos {
     // === Reloj global ===
     private int relojGlobal = 0;
 
-    // === NUEVO: procesos en estado NEW (sin BCP, programa en Swap) ===
-    private final List<TrabajoNuevo> trabajosNuevos = new ArrayList<>();
+    // Procesos en estado NEW (sin BCP, programa en Swap).
+    // CopyOnWriteArrayList: la GUI lee esta lista desde otro hilo mientras
+    // la ejecucion automatica la modifica.
+    private final List<TrabajoNuevo> trabajosNuevos = new CopyOnWriteArrayList<>();
 
-    // === NUEVO: nombre del .asm de cada proceso (solo para mostrar en la GUI) ===
+    // Nombre del .asm de cada proceso (solo para mostrar en la GUI)
     private final Map<Integer, String> nombresPorId = new HashMap<>();
 
     // === (Diagrama Gantt): ejecuciones por proceso y CPU ===
     private Map<Integer, List<IntervaloEjecucion>> intervalosPorProceso = new HashMap<>();
     private Map<Integer, Integer> cpuPorProceso = new HashMap<>();
 
-    // === (RR, Lottery): contador de quantum por proceso ===
+    // === (RR, Lottery, MLFQ): contador de quantum por proceso ===
     private Map<Integer, Integer> quantumConsumidoPorProceso = new HashMap<>();
     private int quantumRR = QUANTUM_DEFAULT;
 
@@ -185,6 +194,8 @@ public class GestorProcesos {
             this.planificador.setEstrategia(new PlanificadorLottery());
         } else if ("Guaranteed".equalsIgnoreCase(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorGuaranteed());
+        } else if ("MLFQ".equalsIgnoreCase(algoritmoCPU)) {
+            this.planificador.setEstrategia(new PlanificadorMLFQ());
         } else {
             this.planificador.setEstrategia(new PlanificadorFCFS());
         }
@@ -500,9 +511,9 @@ public class GestorProcesos {
             }
         }
 
-        // 3.5. RR, Selfish RR y Lottery: rotacion por quantum CON orden especial de llegadas.
-        //      En RR entran a la cola de turnos los que llegan; en Selfish RR,
-        //      los que se aceptan en este segundo.
+        // 3.5. RR, Selfish RR, Lottery y MLFQ: rotacion por quantum CON orden
+        //      especial de llegadas. En RR entran a la cola de turnos los que
+        //      llegan; en Selfish RR, los que se aceptan en este segundo.
         if (usaQuantum()) {
             for (BCP bcp : llegadosAhora) {
                 System.out.println("[RELOJ " + relojGlobal + "] Proceso " + bcp.getId() + " ha llegado.");
@@ -558,7 +569,8 @@ public class GestorProcesos {
         List<BCP> terminadosEnEstePaso = new ArrayList<>();
         gestorCPUs.ejecutarPasoEnTodos(terminadosEnEstePaso);
 
-        // 7. Registrar ejecuciones + incrementar contador de quantum (RR, Selfish RR y Lottery)
+        // 7. Registrar ejecuciones + incrementar contador de quantum
+        //    (RR, Selfish RR, Lottery y MLFQ)
         for (Map.Entry<Integer, Integer> e : ejecucionesEnPaso.entrySet()) {
             int idProceso = e.getKey();
             registrarEjecucion(idProceso, e.getValue(), relojGlobal);
@@ -596,6 +608,11 @@ public class GestorProcesos {
 
                     if (bcp.getPesoPendiente() == 0) {
                         bcp.setEstado(EstadoProceso.RUNNING);
+                        if (esMLFQ()) {
+                            ((PlanificadorMLFQ) planificador.getEstrategia()).resetearNivel(bcp);
+                            System.out.println("[MLFQ] Proceso " + bcp.getId()
+                                + " vuelve de I/O -> Q1.");
+                        }
                         System.out.println("[CPU " + nucleo.getIdNucleo() + "] Proceso " + bcp.getId() + " desbloqueado.");
                     }
                 }
@@ -621,16 +638,25 @@ public class GestorProcesos {
 
     /**
      * @return true si la estrategia activa es Lottery.
+     *         (instanceof: no depende del texto que devuelva getNombre()).
      */
     private boolean esLottery() {
-        return "Lottery".equals(planificador.getNombreEstrategia());
+        return planificador.getEstrategia() instanceof PlanificadorLottery;
     }
 
     /**
-     * @return true si la estrategia reparte la CPU por quantum (RR, Selfish RR o Lottery).
+     * @return true si la estrategia activa es MLFQ.
+     */
+    private boolean esMLFQ() {
+        return planificador.getEstrategia() instanceof PlanificadorMLFQ;
+    }
+
+    /**
+     * @return true si la estrategia reparte la CPU por quantum
+     *         (RR, Selfish RR, Lottery o MLFQ).
      */
     private boolean usaQuantum() {
-        return esRR() || esSelfishRR() || esLottery();
+        return esRR() || esSelfishRR() || esLottery() || esMLFQ();
     }
 
     /**
@@ -703,8 +729,10 @@ public class GestorProcesos {
     }
 
     /**
-     * RR, Lottery: recorre los nucleos ocupados y, si el proceso en CPU agoto
-     * su quantum, lo expulsa y lo reencola al final.
+     * RR, Selfish RR, Lottery y MLFQ: recorre los nucleos ocupados y, si
+     * el proceso en CPU agoto su quantum, lo expulsa y lo reencola al
+     * final. En MLFQ el quantum es dinamico segun el nivel del proceso y,
+     * al expulsarlo, se le baja de nivel (Q1->Q2->Q3).
      */
     private void procesarRotacionPorQuantum() {
         for (Nucleo nucleo : gestorCPUs.getNucleos()) {
@@ -717,10 +745,28 @@ public class GestorProcesos {
             int idProceso = enCPU.getId();
             int consumido = quantumConsumidoPorProceso.getOrDefault(idProceso, 0);
 
-            if (consumido < quantumRR) continue;
+            // Quantum dinamico en MLFQ; fijo en RR/SelfishRR/Lottery
+            int quantumActual = quantumRR;
+            if (esMLFQ()) {
+                quantumActual = ((PlanificadorMLFQ) planificador.getEstrategia())
+                                    .getQuantumActual(enCPU);
+            }
 
-            System.out.println("[RR/Lottery] Expulsando ID " + idProceso
-                + " (quantum " + consumido + "/" + quantumRR + " agotado)");
+            if (consumido < quantumActual) continue;
+
+            if (esMLFQ()) {
+                PlanificadorMLFQ mlfq = (PlanificadorMLFQ) planificador.getEstrategia();
+                int nivelAntes = mlfq.getNivel(enCPU);
+                mlfq.bajarNivel(enCPU);
+                int nivelDespues = mlfq.getNivel(enCPU);
+                System.out.println("[MLFQ] Expulsando ID " + idProceso
+                    + " (quantum " + consumido + "/" + quantumActual
+                    + " agotado). Nivel " + PlanificadorMLFQ.nombreNivel(nivelAntes)
+                    + " -> " + PlanificadorMLFQ.nombreNivel(nivelDespues));
+            } else {
+                System.out.println("[RR/Lottery] Expulsando ID " + idProceso
+                    + " (quantum " + consumido + "/" + quantumActual + " agotado)");
+            }
 
             nucleo.expulsarProceso();
             listaProcesos.agregar(enCPU);
@@ -790,6 +836,11 @@ public class GestorProcesos {
         this.procesosTerminados.add(snapshot);
 
         quantumConsumidoPorProceso.put(idProceso, 0);
+
+        // Limpiar el estado interno del planificador (MLFQ guarda nivel por proceso)
+        if (esMLFQ()) {
+            ((PlanificadorMLFQ) planificador.getEstrategia()).olvidar(bcp);
+        }
 
         particionador.liberarParticion(bcp.getBase(), bcp.getAlcance(), bcp.getId());
         memoria.liberarBloqueUsuario(bcp.getBase(), bcp.getAlcance());
@@ -920,10 +971,15 @@ public class GestorProcesos {
     /**
      * Aplica los tiempos de llegada elegidos en la GUI.
      *
-     *  - Proceso READY (con BCP) y TL futuro: vuelve a NEW (se destruye su
-     *    BCP y su programa pasa al swap). Solo si aun no ejecuto.
      *  - Proceso NEW y TL ya alcanzado: se crea su BCP y pasa a READY.
      *  - Proceso NEW y TL futuro: solo se actualiza el TL.
+     *  - Proceso READY (con BCP) y TL futuro: vuelve a NEW (se destruye su
+     *    BCP y su programa pasa al swap). Solo si aun no ejecuto y hay
+     *    espacio en swap; si no, conserva su TL anterior.
+     *  - Proceso READY y TL no futuro: solo se actualiza el TL.
+     *
+     * La ventana manda una fila por proceso (tambien los que no se
+     * tocaron), asi que un TL igual al actual no debe provocar cambios.
      */
     public void actualizarTiemposLlegada(Object[][] tiempos) {
         for (Object[] t : tiempos) {
@@ -951,17 +1007,25 @@ public class GestorProcesos {
             BCP bcp = buscarProcesoPorId(id);
             if (bcp == null) continue;
 
-            bcp.setTiempoLlegada(tiempo);
+            int tlAnterior = bcp.getTiempoLlegada();
+            if (tiempo == tlAnterior) continue;   // sin cambios
 
             if (tiempo > relojGlobal) {
-                if (puedeVolverANuevo(bcp)) {
-                    enviarANuevo(bcp);
+                if (!puedeVolverANuevo(bcp)) {
+                    System.out.println("[RELOJ] Proceso " + id
+                        + " ya empezo a ejecutar: no puede volver a NEW.");
+                    continue;
+                }
+                bcp.setTiempoLlegada(tiempo);
+                if (enviarANuevo(bcp)) {
                     System.out.println("[RELOJ] Proceso " + id
                         + " pasa a NEW (llega en t=" + tiempo + ")");
                 } else {
-                    System.out.println("[RELOJ] Proceso " + id
-                        + " ya empezo a ejecutar: no puede volver a NEW.");
+                    // Sin espacio en swap: se queda en RAM como estaba
+                    bcp.setTiempoLlegada(tlAnterior);
                 }
+            } else {
+                bcp.setTiempoLlegada(tiempo);
             }
         }
     }

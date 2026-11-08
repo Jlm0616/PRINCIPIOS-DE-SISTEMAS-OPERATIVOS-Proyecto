@@ -1,6 +1,6 @@
 #Configuracion del Sistema - Proyecto 2 SO
-#Sat Nov 07 21:38:28 CST 2026
-algoritmo_cpu=Guaranteed
+#Sun Nov 08 06:25:04 CST 2026
+algoritmo_cpu=MLFQ
 cpus=1
 disco=512
 kernel=909

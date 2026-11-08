@@ -30,17 +30,20 @@ import java.util.List;
  * Muestra:
  *   - Procesos en CPU (Ubicacion = "CPU N").
  *   - Procesos en RAM (Ubicacion = "En RAM (Cola)").
- *   - Procesos pendientes de llegada (Ubicacion = "Espera TL=N").
+ *   - Procesos en NEW, sin BCP y guardados en swap (Ubicacion = "Espera TL=N").
  *
  * Columnas editables: Tiempo Llegada (col 3) y Prioridad (col 4).
  *
  * PROYECTO 2:
- *  - Los pendientes (TL futuro) tambien aparecen, para que el usuario
- *    pueda corregir su TL o prioridad antes de que lleguen.
- *  - Si baja el TL a un valor <= relojGlobal, GestorProcesos lo mueve
- *    automaticamente a READY en el proximo refresco.
- *  - El Tiempo de Llegada SOLO es editable si el proceso esta en NEW
- *    (pendiente de llegada). Los que estan en RAM o CPU ya no se pueden cambiar.
+ *  - Los procesos en NEW vienen como TrabajoNuevo (no tienen BCP): su
+ *    rafaga es el tamano de su programa en swap.
+ *  - El Tiempo de Llegada es editable si el proceso esta en NEW o en la
+ *    cola de RAM (sin haber ejecutado). Los que estan en CPU ya no se
+ *    pueden cambiar.
+ *  - Si el nuevo TL es futuro, GestorProcesos devuelve el proceso de RAM
+ *    a NEW (le destruye el BCP y lo manda al swap).
+ *  - Si el nuevo TL es <= relojGlobal, GestorProcesos le crea el BCP, lo
+ *    carga en RAM y lo pasa a READY al aplicar los cambios.
  */
 public class VentanaTiemposLlegada extends JDialog {
 
@@ -49,6 +52,9 @@ public class VentanaTiemposLlegada extends JDialog {
     private static final int COL_RAFAGA    = 2;
     private static final int COL_LLEGADA   = 3;
     private static final int COL_PRIORIDAD = 4;
+
+    private static final String UBIC_NEW = "Espera TL=";
+    private static final String UBIC_RAM = "En RAM (Cola)";
 
     // Color para procesos pendientes (fondo amarillo claro)
     private static final Color COLOR_PENDIENTE = new Color(0xFF, 0xF3, 0xCD);
@@ -67,7 +73,7 @@ public class VentanaTiemposLlegada extends JDialog {
     public VentanaTiemposLlegada(Frame propietario,
                                  List<Nucleo> nucleos,
                                  List<BCP> procesosEnCola) {
-        this(propietario, nucleos, procesosEnCola, new ArrayList<>());
+        this(propietario, nucleos, procesosEnCola, new ArrayList<TrabajoNuevo>());
     }
 
     /** Constructor completo (con trabajos en NEW). */
@@ -79,13 +85,19 @@ public class VentanaTiemposLlegada extends JDialog {
         this.nucleos = nucleos;
         this.procesosEnCola = procesosEnCola;
         this.trabajosNuevos = (trabajosNuevos != null)
-                ? trabajosNuevos : new ArrayList<>();
+                ? trabajosNuevos : new ArrayList<TrabajoNuevo>();
 
         construirInterfaz();
         pack();
         setSize(750, 520);
         setResizable(true);
         setLocationRelativeTo(propietario);
+    }
+
+    /** true si el TL de una fila con esta ubicacion se puede editar. */
+    private static boolean tlEditable(String ubicacion) {
+        return ubicacion != null
+                && (ubicacion.startsWith(UBIC_NEW) || ubicacion.equals(UBIC_RAM));
     }
 
     private void construirInterfaz() {
@@ -106,13 +118,12 @@ public class VentanaTiemposLlegada extends JDialog {
             public boolean isCellEditable(int row, int column) {
                 // La prioridad siempre se puede editar
                 if (column == COL_PRIORIDAD) return true;
-                
-                // El TL solo se puede editar si la ubicación empieza con "Espera TL="
+
+                // El TL se edita en procesos NEW y en los de la cola de RAM
                 if (column == COL_LLEGADA) {
-                    String ubicacion = (String) getValueAt(row, COL_UBICACION);
-                    return ubicacion != null && ubicacion.startsWith("Espera TL=");
+                    return tlEditable((String) getValueAt(row, COL_UBICACION));
                 }
-                
+
                 return false;
             }
         };
@@ -136,7 +147,7 @@ public class VentanaTiemposLlegada extends JDialog {
         // 2. Procesos en RAM (READY)
         for (BCP bcp : procesosEnCola) {
             modelo.addRow(new Object[]{
-                "En RAM (Cola)",
+                UBIC_RAM,
                 bcp.getId(),
                 bcp.getRafaga(),
                 bcp.getTiempoLlegada(),
@@ -144,10 +155,10 @@ public class VentanaTiemposLlegada extends JDialog {
             });
         }
 
-        // 3. Procesos pendientes de llegada (desde TrabajoNuevo)
+        // 3. Procesos en NEW (desde TrabajoNuevo, sin BCP)
         for (TrabajoNuevo t : trabajosNuevos) {
             modelo.addRow(new Object[]{
-                "Espera TL=" + t.getTiempoLlegada(),
+                UBIC_NEW + t.getTiempoLlegada(),
                 t.getId(),
                 t.getTamano(),
                 t.getTiempoLlegada(),
@@ -182,7 +193,7 @@ public class VentanaTiemposLlegada extends JDialog {
                                 c.setForeground(Paleta.TEXTO_NORMAL);
                                 setFont(Paleta.FUENTE_MONO);
                             }
-                        } else if (ubicacion.startsWith("Espera TL=")) {
+                        } else if (ubicacion.startsWith(UBIC_NEW)) {
                             c.setBackground(COLOR_PENDIENTE);
                             c.setForeground(Paleta.TEXTO_NORMAL);
                             setFont(Paleta.FUENTE_MONO);
@@ -194,7 +205,7 @@ public class VentanaTiemposLlegada extends JDialog {
                     } else if (column == COL_LLEGADA) {
                         // Si NO es editable, pintarlo de gris
                         String ubicacion = (String) table.getValueAt(row, COL_UBICACION);
-                        if (ubicacion != null && !ubicacion.startsWith("Espera TL=")) {
+                        if (ubicacion != null && !tlEditable(ubicacion)) {
                             c.setBackground(COLOR_BLOQUEADO);
                             c.setForeground(Color.GRAY);
                         } else {
@@ -231,6 +242,12 @@ public class VentanaTiemposLlegada extends JDialog {
     }
 
     private void confirmar() {
+        // Cerrar una edicion de celda que siga abierta (si el usuario no
+        // presiono Enter, el modelo todavia tiene el valor anterior)
+        if (tabla.isEditing()) {
+            tabla.getCellEditor().stopCellEditing();
+        }
+
         try {
             for (int i = 0; i < modelo.getRowCount(); i++) {
                 Integer.parseInt(modelo.getValueAt(i, COL_LLEGADA).toString().trim());

@@ -373,7 +373,7 @@ public class VentanaPrincipal extends JFrame {
         if (archivos == null || archivos.length == 0) return;
 
         int cargadosExito = 0;
-        int enEspera = 0;
+        int enNuevo = 0;
         int conError = 0;
 
         for (File archivo : archivos) {
@@ -381,7 +381,7 @@ public class VentanaPrincipal extends JFrame {
             switch (resultado) {
                 case 1: cargadosExito++; break;
                 case 0: conError++; break;
-                case -1: enEspera++; break;
+                case -1: enNuevo++; break;
             }
         }
 
@@ -390,7 +390,7 @@ public class VentanaPrincipal extends JFrame {
             panelPantalla.agregarMensaje(">> ===== RESUMEN DE CARGA =====");
             panelPantalla.agregarMensaje(">> Archivos seleccionados: " + archivos.length);
             panelPantalla.agregarMensaje(">> Cargados en RAM:        " + cargadosExito);
-            panelPantalla.agregarMensaje(">> En espera (swap):       " + enEspera);
+            panelPantalla.agregarMensaje(">> En NEW (swap):          " + enNuevo);
             panelPantalla.agregarMensaje(">> Con error:              " + conError);
             panelPantalla.agregarMensaje(">> ============================");
             panelPantalla.agregarMensaje("");
@@ -399,7 +399,7 @@ public class VentanaPrincipal extends JFrame {
         refrescarTodo();
     }
 
-    // Carga un único archivo .asm. Devuelve 1=OK, 0=error, -1=en espera.
+    // Carga un único archivo .asm. Devuelve 1=OK (en RAM), 0=error, -1=en NEW (swap).
     private int cargarUnArchivo(File archivo) {
         if (!archivo.getName().toLowerCase().endsWith(".asm")) {
             JOptionPane.showMessageDialog(this,
@@ -424,8 +424,9 @@ public class VentanaPrincipal extends JFrame {
                 return 0;
 
             case EN_ESPERA:
-                panelPantalla.agregarMensaje(">> " + archivo.getName()
-                        + " en espera (no hay hueco suficiente)");
+                // El proceso queda en NEW (guardado en swap, sin BCP). El
+                // gestor ya explico en pantalla el motivo (llega en el futuro
+                // o no hay hueco en RAM), asi que no se repite aqui.
                 return -1;
         }
 
@@ -656,7 +657,8 @@ public class VentanaPrincipal extends JFrame {
 
     /**
      * Texto con los parametros del algoritmo activo, para los mensajes
-     * de la pantalla: quantum en RR; quantum, a y b en Selfish RR.
+     * de la pantalla: quantum en RR y Lottery; quantum, a y b en Selfish RR;
+     * quantums por nivel en MLFQ.
      */
     private String parametrosAlgoritmo() {
         if ("RR".equalsIgnoreCase(algoritmoCPUActual)) {
@@ -668,6 +670,9 @@ public class VentanaPrincipal extends JFrame {
         }
         if ("Lottery".equalsIgnoreCase(algoritmoCPUActual)) {
             return " (quantum=" + quantumRRActual + ")";
+        }
+        if ("MLFQ".equalsIgnoreCase(algoritmoCPUActual)) {
+            return " (Q1=1, Q2=2, Q3=4)";
         }
         return "";
     }
