@@ -22,8 +22,8 @@ import java.awt.Insets;
  * b (incremento de los aceptados).
  *
  * PROYECTO 2: algoritmos disponibles actualmente:
- *   FCFS, SPN, SRT, RR, HRRN, Prioridad, Selfish RR, Lottery.
- * Se irán agregando los demás (Guaranteed, MLFQ).
+ *   FCFS, SPN, SRT, RR, HRRN, Prioridad, Selfish RR, Lottery, Guaranteed.
+ * Se irán agregando los demás (MLFQ).
  *
  * SOLID:
  *  - SRP: solo maneja la configuracion visual de CPUs y algoritmo.
@@ -121,7 +121,8 @@ public class PanelConfigCPU extends JPanel {
             "HRRN",
             "Prioridad",
             SELFISH_RR,
-            "Lottery"
+            "Lottery",
+            "Guaranteed"
         });
         seleccionarAlgoritmo(algoritmoActual);
         comboAlgoritmo.setFont(Paleta.FUENTE_MONO);

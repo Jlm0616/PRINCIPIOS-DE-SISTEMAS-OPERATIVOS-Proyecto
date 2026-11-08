@@ -4,6 +4,7 @@ import logica.cpu.GestorCPUs;
 import logica.cpu.Nucleo;
 import logica.estadisticas.IntervaloEjecucion;
 import logica.planificacion.PlanificadorFCFS;
+import logica.planificacion.PlanificadorGuaranteed;
 import logica.planificacion.PlanificadorHRRN;
 import logica.planificacion.PlanificadorLottery;
 import logica.planificacion.PlanificadorPrioridad;
@@ -182,6 +183,8 @@ public class GestorProcesos {
             this.planificador.setEstrategia(new PlanificadorSelfishRR(quantumRR, srrA, srrB));
         } else if ("Lottery".equalsIgnoreCase(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorLottery());
+        } else if ("Guaranteed".equalsIgnoreCase(algoritmoCPU)) {
+            this.planificador.setEstrategia(new PlanificadorGuaranteed());
         } else {
             this.planificador.setEstrategia(new PlanificadorFCFS());
         }

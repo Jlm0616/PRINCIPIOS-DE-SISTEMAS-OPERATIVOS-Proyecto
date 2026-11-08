@@ -20,8 +20,9 @@ import java.util.Properties;
  *   - max_procesos = 5 por CPU.
  *
  * PROYECTO 2:
- *   - Algoritmos validos: FCFS, SPN, SRT, RR, HRRN, Prioridad, Selfish RR, Lottery.
- *   - Se iran agregando los demas (Guaranteed, MLFQ) cuando se implementen.
+ *   - Algoritmos validos: FCFS, SPN, SRT, RR, HRRN, Prioridad, Selfish RR,
+ *     Lottery, Guaranteed.
+ *   - Falta por agregar: MLFQ.
  *   - quantum aplica para RR, Lottery y Selfish RR. Default = 1.
  *   - srr_a y srr_b solo aplican para Selfish RR.
  */
@@ -45,7 +46,7 @@ public class ConfiguracionExterna {
 
     // Algoritmos de CPU soportados actualmente.
     private static final String[] ALGORITMOS_VALIDOS = {
-        "FCFS", "SPN", "SRT", "RR", "HRRN", "PRIORIDAD", "SELFISH RR", "LOTTERY"
+        "FCFS", "SPN", "SRT", "RR", "HRRN", "PRIORIDAD", "SELFISH RR", "LOTTERY", "GUARANTEED"
     };
 
     // Valores mínimos absolutos (si el usuario pone menos, se corrige)
