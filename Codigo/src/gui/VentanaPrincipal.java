@@ -21,6 +21,8 @@ import javax.swing.JPanel;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
+import javax.swing.JSplitPane;
+import javax.swing.SwingUtilities;
 import javax.swing.BorderFactory;
 import javax.swing.UIManager;
 import javax.swing.SwingWorker;
@@ -73,6 +75,12 @@ public class VentanaPrincipal extends JFrame {
     private PanelMemoria panelMemoria;
     private PanelDisco panelDisco;
     private PanelPantalla panelPantalla;
+    private PanelPantalla panelContexto;   // bitacora de cambios de contexto
+    private PanelGanttVivo panelGantt;
+
+    // Alto inicial del Gantt en vivo: unas 6 filas. Con mas filas aparece el
+    // scroll, y el divisor se puede arrastrar para darle mas espacio.
+    private static final int ALTO_INICIAL_GANTT = 230;
 
     private JButton btnCargar;
     private JButton btnEjecutar;
@@ -216,10 +224,15 @@ public class VentanaPrincipal extends JFrame {
         panelMemoria = new PanelMemoria();
         panelDisco = new PanelDisco();
         panelPantalla = new PanelPantalla();
+        panelContexto = new PanelPantalla("Cambios de contexto");
+        panelGantt = new PanelGanttVivo();
 
-        // Se conserva la altura original de Pantalla; el ancho lo decide el layout.
-        int alturaPantalla = panelPantalla.getPreferredSize().height;
+        // Pantalla y cambios de contexto con altura fija, mas baja que la
+        // original para dejar lugar al Gantt sin quitarselo a Memoria y Disco.
+        // El ancho lo decide el layout.
+        int alturaPantalla = 160;
         panelPantalla.setPreferredSize(new Dimension(1, alturaPantalla));
+        panelContexto.setPreferredSize(new Dimension(1, alturaPantalla));
 
         // Anchos preferidos minimos para que las 3 columnas queden iguales (1/3 c/u)
         panelProcesos.setPreferredSize(new Dimension(1, 1));
@@ -252,14 +265,41 @@ public class VentanaPrincipal extends JFrame {
         gbc.insets = new Insets(0, 0, 10, 0);
         centro.add(panelDisco, gbc);
 
-        // Pantalla: fila de abajo, debajo de Memoria y Disco (altura fija)
+        // Pantalla y cambios de contexto: fila de abajo, debajo de Memoria y
+        // Disco respectivamente (altura fija)
         gbc.gridx = 1; gbc.gridy = 1;
-        gbc.gridwidth = 2;
+        gbc.gridwidth = 1;
         gbc.weighty = 0.0;
-        gbc.insets = new Insets(0, 0, 0, 0);
+        gbc.insets = new Insets(0, 0, 0, 10);
         centro.add(panelPantalla, gbc);
 
-        mainPanel.add(centro, BorderLayout.CENTER);
+        gbc.gridx = 2; gbc.gridy = 1;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        centro.add(panelContexto, gbc);
+
+        // Diagrama de Gantt en vivo: abajo, a todo lo ancho. El divisor deja
+        // ajustar cuanto alto le toca.
+        JSplitPane division = new JSplitPane(JSplitPane.VERTICAL_SPLIT, centro, panelGantt);
+        // Al agrandar la ventana, el espacio extra va a Memoria y Disco.
+        division.setResizeWeight(1.0);
+        // La primera vez que la division tiene tamano, el Gantt recibe su alto
+        // inicial (el divisor se calcula desde arriba, no desde el Gantt).
+        division.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                if (division.getHeight() <= 0) return;
+                division.setDividerLocation(Math.max(300,
+                        division.getHeight() - ALTO_INICIAL_GANTT - division.getDividerSize()));
+                division.removeComponentListener(this);
+            }
+        });
+        division.setContinuousLayout(true);
+        division.setBorder(null);
+        division.setOpaque(false);
+        panelGantt.setMinimumSize(new Dimension(1, 120));
+        centro.setMinimumSize(new Dimension(1, 300));
+
+        mainPanel.add(division, BorderLayout.CENTER);
 
         configurarCallbacks();
     }
@@ -267,6 +307,11 @@ public class VentanaPrincipal extends JFrame {
     // Conecta los callbacks del gestor con los paneles de la GUI.
     private void configurarCallbacks() {
         gestor.setSalidaPantalla(mensaje -> panelPantalla.agregarMensaje(mensaje));
+
+        // Los cambios de contexto pueden llegar desde el hilo de la ejecucion
+        // automatica: se pasan al hilo de Swing en el mismo orden.
+        gestor.setBitacoraContexto(mensaje ->
+                SwingUtilities.invokeLater(() -> panelContexto.agregarMensaje(mensaje)));
 
         gestor.setSolicitudArchivo(bcp -> {
             int ah = bcp.getAh();
@@ -613,6 +658,7 @@ public class VentanaPrincipal extends JFrame {
 
         configurarCallbacks();
         panelPantalla.limpiar();
+        panelContexto.limpiar();
         mostrarMensajeConfiguracion();
         refrescarTodo();
     }
@@ -622,6 +668,7 @@ public class VentanaPrincipal extends JFrame {
         inicializarSistema();
         configurarCallbacks();
         panelPantalla.limpiar();
+        panelContexto.limpiar();
         mostrarMensajeConfiguracion();
         refrescarTodo();
     }
@@ -774,5 +821,11 @@ public class VentanaPrincipal extends JFrame {
 
         panelMemoria.actualizar(memoria, irsPorCPU);
         panelDisco.actualizar(disco);
+
+        // 3. Diagrama de Gantt en vivo (incluye los procesos que siguen corriendo)
+        panelGantt.actualizar(gestor.getRegistroGantt(),
+                gestor.getGestorCPUs().getCantidadNucleos(),
+                gestor.getRelojGlobal(),
+                gestor::getNombreArchivo);
     }
 }

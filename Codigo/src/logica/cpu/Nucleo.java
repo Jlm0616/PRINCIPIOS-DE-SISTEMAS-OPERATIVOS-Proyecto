@@ -7,6 +7,8 @@ import modelo.Disco;
 import modelo.EstadoProceso;
 import modelo.Memoria;
 
+import java.util.function.Consumer;
+
 public class Nucleo {
 
     private final int idNucleo;
@@ -15,6 +17,10 @@ public class Nucleo {
     private final Despachador despachador;
 
     private boolean ocupado;
+
+    // Recibe un mensaje por cada cambio de contexto (carga, guarda, termina),
+    // para mostrarlo en la GUI. Lo conecta GestorProcesos.
+    private Consumer<String> bitacora;
 
     public Nucleo(int idNucleo, Memoria memoria, int limiteKernel, Disco disco) {
         this.idNucleo = idNucleo;
@@ -41,6 +47,8 @@ public class Nucleo {
         BCP bcp = despachador.getBcpActual();
         if (bcp != null) {
             bcp.setCpuAsignado(idNucleo);
+            anotar("carga el contexto de P" + bcp.getId() + " desde su BCP (dir "
+                    + bcp.getDireccionBase() + "): " + registros(bcp) + " -> RUNNING");
         }
     }
 
@@ -60,6 +68,7 @@ public class Nucleo {
         if (bcp == null || bcp.getEstado() == EstadoProceso.EXIT) {
             if (bcp != null) {
                 bcp.setCpuAsignado(-1);
+                anotar("P" + bcp.getId() + " termina (EXIT); la CPU queda libre");
             }
             despachador.limpiarEjecutor();
             ocupado = false;
@@ -106,6 +115,8 @@ public class Nucleo {
             // Paso 2: el proceso sigue vivo, vuelve a READY
             bcp.setEstado(EstadoProceso.READY);
             bcp.setCpuAsignado(-1);
+            anotar("guarda el contexto de P" + bcp.getId() + " en su BCP (dir "
+                    + bcp.getDireccionBase() + "): " + registros(bcp) + " -> READY");
         }
 
         // Paso 3: liberar el nucleo
@@ -120,6 +131,27 @@ public class Nucleo {
         }
         despachador.limpiarEjecutor();
         ocupado = false;
+    }
+
+    /**
+     * Conecta la bitacora de cambios de contexto. Cada mensaje llega ya
+     * con el nombre del nucleo ("CPU 0: ...").
+     */
+    public void setBitacora(Consumer<String> bitacora) {
+        this.bitacora = bitacora;
+    }
+
+    // Envia un mensaje a la bitacora, con el nombre del nucleo al inicio.
+    private void anotar(String mensaje) {
+        if (bitacora != null) {
+            bitacora.accept("CPU " + idNucleo + ": " + mensaje);
+        }
+    }
+
+    // Registros del BCP que se copian en el cambio de contexto.
+    private static String registros(BCP bcp) {
+        return "PC=" + bcp.getPc() + ", AC=" + bcp.getAc() + ", AX=" + bcp.getAx()
+                + ", base=" + bcp.getBase();
     }
 
     public int getIdNucleo() { return idNucleo; }

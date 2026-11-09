@@ -16,6 +16,8 @@ import java.awt.Color;
  *
  * En el Proyecto 2, SOLO se usa para mostrar mensajes de salida (INT 10H).
  * Ya no hay entrada de teclado (INT 09H eliminado).
+ *
+ * Con otro titulo se reutiliza como bitacora de cambios de contexto.
  */
 public class PanelPantalla extends JPanel {
 
@@ -23,17 +25,22 @@ public class PanelPantalla extends JPanel {
 
     // Crea el panel y construye su interfaz gráfica.
     public PanelPantalla() {
-        construirInterfaz();
+        this("Pantalla");
+    }
+
+    // Crea el panel con el titulo indicado (por ejemplo "Cambios de contexto").
+    public PanelPantalla(String titulo) {
+        construirInterfaz(titulo);
     }
 
     // Construye la interfaz del panel (solo área de pantalla).
-    private void construirInterfaz() {
+    private void construirInterfaz(String titulo) {
         setLayout(new BorderLayout(5, 5));
         setBackground(Paleta.FONDO_PANEL);
         setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createTitledBorder(
                         BorderFactory.createLineBorder(Paleta.VERDE_OSCURO, 2),
-                        "Pantalla",
+                        titulo,
                         TitledBorder.DEFAULT_JUSTIFICATION,
                         TitledBorder.DEFAULT_POSITION,
                         Paleta.FUENTE_TITULO_PANEL,

@@ -65,6 +65,26 @@ public class Paleta {
         }
     }
 
+    /* ==================== COLORES DE PROCESOS (Diagrama de Gantt) ==================== */
+
+    private static final Color[] COLORES_PROCESO = {
+        new Color(0x1E, 0x88, 0xE5),   // azul
+        new Color(0xE5, 0x39, 0x35),   // rojo
+        new Color(0x43, 0xA0, 0x47),   // verde
+        new Color(0xFB, 0x8C, 0x00),   // naranja
+        new Color(0x8E, 0x24, 0xAA),   // purpura
+        new Color(0x00, 0xAC, 0xC1),   // cyan
+        new Color(0xC0, 0xCA, 0x33),   // lima
+        new Color(0x6D, 0x4C, 0x41),   // marron
+    };
+
+    // Devuelve el color estable de un proceso, el mismo en el Gantt en vivo
+    // y en el de Estadisticas.
+    public static Color getColorProceso(int idProceso) {
+        int i = Math.floorMod(idProceso - 1, COLORES_PROCESO.length);
+        return COLORES_PROCESO[i];
+    }
+
     /* ==================== FUENTES ==================== */
 
     public static final Font FUENTE_TITULO = new Font("Segoe UI", Font.BOLD, 20);

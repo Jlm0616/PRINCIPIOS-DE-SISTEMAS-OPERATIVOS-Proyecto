@@ -3,6 +3,7 @@ package logica;
 import logica.cpu.GestorCPUs;
 import logica.cpu.Nucleo;
 import logica.estadisticas.IntervaloEjecucion;
+import logica.estadisticas.RegistroGantt;
 import logica.planificacion.PlanificadorFCFS;
 import logica.planificacion.PlanificadorGuaranteed;
 import logica.planificacion.PlanificadorHRRN;
@@ -94,6 +95,12 @@ public class GestorProcesos {
 
     // === Reloj global ===
     private int relojGlobal = 0;
+
+    // Diagrama de Gantt en vivo: que proceso ocupo cada nucleo en cada instante.
+    private final RegistroGantt registroGantt = new RegistroGantt();
+
+    // Recibe los cambios de contexto para mostrarlos en la GUI.
+    private java.util.function.Consumer<String> bitacoraContexto;
 
     // Procesos en estado NEW (sin BCP, programa en Swap).
     // CopyOnWriteArrayList: la GUI lee esta lista desde otro hilo mientras
@@ -201,6 +208,9 @@ public class GestorProcesos {
         }
 
         this.gestorCPUs = new GestorCPUs(cantidadCPUs, memoria, memoria.getLimiteKernelUsuario(), disco);
+        for (Nucleo n : gestorCPUs.getNucleos()) {
+            n.setBitacora(this::anunciarContexto);
+        }
 
         this.siguienteId = 1;
         this.procesosTerminados = new ArrayList<>();
@@ -555,12 +565,16 @@ public class GestorProcesos {
         gestorCPUs.balancear(listaProcesos, planificador, relojGlobal);
 
         // 5. Capturar los RUNNING ANTES de ejecutar el paso.
+        //    Los BLOCKED por INT 21H siguen ocupando su nucleo: se marcan en
+        //    el Gantt en vivo como espera de disco.
         Map<Integer, Integer> ejecucionesEnPaso = new HashMap<>();
         for (Nucleo nucleo : gestorCPUs.getNucleos()) {
             if (nucleo.estaOcupado()) {
                 BCP bcp = nucleo.getBcpActual();
                 if (bcp != null && bcp.getEstado() == EstadoProceso.RUNNING) {
                     ejecucionesEnPaso.put(bcp.getId(), nucleo.getIdNucleo());
+                } else if (bcp != null && bcp.getEstado() == EstadoProceso.BLOCKED) {
+                    registroGantt.registrarEspera(nucleo.getIdNucleo(), bcp.getId(), relojGlobal);
                 }
             }
         }
@@ -596,8 +610,9 @@ public class GestorProcesos {
                     if (bcp.getPesoPendiente() == 0) {
                         int tardanza = calcularTardanzaDisco(bcp);
                         bcp.setPesoPendiente(tardanza);
-                        System.out.println("[CPU " + nucleo.getIdNucleo() + "] Proceso " + bcp.getId()
-                            + " BLOCKED por IO. Tardanza: " + tardanza + "s");
+                        anunciarContexto("CPU " + nucleo.getIdNucleo() + ": P" + bcp.getId()
+                            + " pasa a BLOCKED por E/S de disco (INT 21H, " + tardanza
+                            + " s); sigue ocupando el nucleo");
                     }
 
                     if (bcp.getPesoPendiente() > 0) {
@@ -613,7 +628,9 @@ public class GestorProcesos {
                             System.out.println("[MLFQ] Proceso " + bcp.getId()
                                 + " vuelve de I/O -> Q1.");
                         }
-                        System.out.println("[CPU " + nucleo.getIdNucleo() + "] Proceso " + bcp.getId() + " desbloqueado.");
+                        anunciarContexto("CPU " + nucleo.getIdNucleo() + ": P" + bcp.getId()
+                            + " termina la E/S de disco y vuelve a RUNNING"
+                            + (esMLFQ() ? " (MLFQ: vuelve a Q1)" : ""));
                     }
                 }
             }
@@ -686,6 +703,7 @@ public class GestorProcesos {
      */
     private void registrarEjecucion(int idProceso, int idCpu, int t) {
         cpuPorProceso.put(idProceso, idCpu);
+        registroGantt.registrarEjecucion(idCpu, idProceso, t);
 
         List<IntervaloEjecucion> lista =
                 intervalosPorProceso.computeIfAbsent(idProceso, k -> new ArrayList<>());
@@ -718,10 +736,10 @@ public class GestorProcesos {
             BCP candidato = planificador.debeExpulsar(enCPU);
             if (candidato == null) continue;
 
-            System.out.println("[SRT] Expulsando ID " + enCPU.getId()
-                + " (rest=" + enCPU.getTiempoRestante() + ")"
-                + " por ID " + candidato.getId()
-                + " (rest=" + candidato.getTiempoRestante() + ")");
+            anunciarContexto("CPU " + nucleo.getIdNucleo() + ": " + planificador.getNombreEstrategia()
+                + " expulsa a P" + enCPU.getId()
+                + " (le quedan " + enCPU.getTiempoRestante() + " s) porque P" + candidato.getId()
+                + " tiene menos (" + candidato.getTiempoRestante() + " s)");
 
             nucleo.expulsarProceso();
             listaProcesos.agregar(enCPU);
@@ -759,12 +777,13 @@ public class GestorProcesos {
                 int nivelAntes = mlfq.getNivel(enCPU);
                 mlfq.bajarNivel(enCPU);
                 int nivelDespues = mlfq.getNivel(enCPU);
-                System.out.println("[MLFQ] Expulsando ID " + idProceso
+                anunciarContexto("CPU " + nucleo.getIdNucleo() + ": MLFQ expulsa a P" + idProceso
                     + " (quantum " + consumido + "/" + quantumActual
-                    + " agotado). Nivel " + PlanificadorMLFQ.nombreNivel(nivelAntes)
-                    + " -> " + PlanificadorMLFQ.nombreNivel(nivelDespues));
+                    + " agotado); baja de " + PlanificadorMLFQ.nombreNivel(nivelAntes)
+                    + " a " + PlanificadorMLFQ.nombreNivel(nivelDespues));
             } else {
-                System.out.println("[RR/Lottery] Expulsando ID " + idProceso
+                anunciarContexto("CPU " + nucleo.getIdNucleo() + ": "
+                    + planificador.getNombreEstrategia() + " expulsa a P" + idProceso
                     + " (quantum " + consumido + "/" + quantumActual + " agotado)");
             }
 
@@ -954,6 +973,30 @@ public class GestorProcesos {
     public Disco getDisco() { return disco; }
     public ParticionadorDinamico getParticionador() { return particionador; }
     public int getQuantumRR() { return quantumRR; }
+
+    /**
+     * Conecta la bitacora de cambios de contexto de la GUI. Los mensajes
+     * pueden llegar desde el hilo de la ejecucion automatica: quien la
+     * conecta debe pasarlos al hilo de Swing.
+     */
+    public void setBitacoraContexto(java.util.function.Consumer<String> callback) {
+        this.bitacoraContexto = callback;
+    }
+
+    /**
+     * @return el registro del diagrama de Gantt en vivo.
+     */
+    public RegistroGantt getRegistroGantt() {
+        return registroGantt;
+    }
+
+    // Anota un cambio de contexto con el instante del reloj (la columna del
+    // Gantt en que ocurre) y lo envia a la GUI y a la consola.
+    private void anunciarContexto(String mensaje) {
+        String linea = "[t=" + relojGlobal + "] " + mensaje;
+        System.out.println(linea);
+        if (bitacoraContexto != null) bitacoraContexto.accept(linea);
+    }
 
     public void setSalidaPantalla(java.util.function.Consumer<String> callback) {
         this.salidaPantalla = callback;
