@@ -4,6 +4,7 @@ import logica.cpu.GestorCPUs;
 import logica.cpu.Nucleo;
 import logica.estadisticas.IntervaloEjecucion;
 import logica.estadisticas.RegistroGantt;
+import logica.memoria.EstrategiaMemoria;
 import logica.planificacion.PlanificadorFCFS;
 import logica.planificacion.PlanificadorGuaranteed;
 import logica.planificacion.PlanificadorHRRN;
@@ -83,7 +84,9 @@ public class GestorProcesos {
     private ListaDeTrabajos listaDeTrabajos;
     private Planificador planificador;
     private GestorCPUs gestorCPUs;
-    private ParticionadorDinamico particionador;
+    // Estrategia de asignacion de la memoria de usuario (First Fit, Next Fit,
+    // Best Fit, particiones fijas, paginacion o paginacion virtual).
+    private EstrategiaMemoria particionador;
     private Disco disco;
 
     // Genera el tiempo de llegada aleatorio de cada proceso al cargarlo
@@ -129,7 +132,7 @@ public class GestorProcesos {
                           String algoritmoCPU,
                           ListaProcesos listaProcesos,
                           ListaDeTrabajos listaDeTrabajos,
-                          ParticionadorDinamico particionador,
+                          EstrategiaMemoria particionador,
                           Disco disco) {
         this(memoria, cpu, cantidadCPUs, algoritmoCPU,
              listaProcesos, listaDeTrabajos, particionador, disco,
@@ -146,7 +149,7 @@ public class GestorProcesos {
                           String algoritmoCPU,
                           ListaProcesos listaProcesos,
                           ListaDeTrabajos listaDeTrabajos,
-                          ParticionadorDinamico particionador,
+                          EstrategiaMemoria particionador,
                           Disco disco,
                           int quantumRR) {
         this(memoria, cpu, cantidadCPUs, algoritmoCPU,
@@ -166,7 +169,7 @@ public class GestorProcesos {
                           String algoritmoCPU,
                           ListaProcesos listaProcesos,
                           ListaDeTrabajos listaDeTrabajos,
-                          ParticionadorDinamico particionador,
+                          EstrategiaMemoria particionador,
                           Disco disco,
                           int quantumRR,
                           int srrA,
@@ -210,6 +213,9 @@ public class GestorProcesos {
         this.gestorCPUs = new GestorCPUs(cantidadCPUs, memoria, memoria.getLimiteKernelUsuario(), disco);
         for (Nucleo n : gestorCPUs.getNucleos()) {
             n.setBitacora(this::anunciarContexto);
+            // La CPU traduce cada direccion con la estrategia de memoria
+            // (en paginacion, el PC es una direccion logica).
+            n.getDespachador().setEstrategiaMemoria(particionador);
         }
 
         this.siguienteId = 1;
@@ -246,6 +252,15 @@ public class GestorProcesos {
         int id = siguienteId;
         String nombreArchivo = archivo.getName();
 
+        // Con particiones fijas o paginacion, un programa puede no caber
+        // NUNCA (mas grande que la particion mas grande o que todos los
+        // marcos): se rechaza en vez de dejarlo esperando para siempre.
+        if (!particionador.cabeAlgunaVez(tamanoNecesario)) {
+            return ResultadoCarga.error(nombreArchivo + " no se puede cargar con "
+                    + particionador.getNombre() + ": "
+                    + particionador.motivoNoCabe(tamanoNecesario) + ".");
+        }
+
         // TL aleatorio en [relojGlobal, relojGlobal + 6]
         int tiempoLlegada = randomizador.generarTiempoLlegada(relojGlobal);
 
@@ -267,7 +282,7 @@ public class GestorProcesos {
         }
 
         // CASO 2: llega ya (TL = reloj) -> intentar cargarlo en RAM
-        int base = particionador.asignarParticion(tamanoNecesario, id);
+        int base = particionador.cargar(id, instrucciones);
         if (base != -1) {
             BCP bcp = crearProcesoEnParticion(instrucciones, base, id);
             if (bcp != null) {
@@ -277,7 +292,7 @@ public class GestorProcesos {
                 siguienteId++;
                 return ResultadoCarga.exito(bcp);
             }
-            particionador.liberarParticion(base, tamanoNecesario, id);
+            particionador.liberar(id);
         }
 
         // CASO 3: llega ya pero no cupo en RAM -> NEW en swap esperando hueco
@@ -368,15 +383,11 @@ public class GestorProcesos {
      */
     private boolean enviarANuevo(BCP bcp) {
         int id = bcp.getId();
-        int base = bcp.getBase();
-        int tamano = bcp.getAlcance();
         String nombre = nombresPorId.getOrDefault(id, "proceso" + id + ".asm");
 
-        List<Instruccion> instrucciones = new ArrayList<>();
-        for (int i = 0; i < tamano; i++) {
-            Object o = memoria.leer(base + i);
-            if (o instanceof Instruccion) instrucciones.add((Instruccion) o);
-        }
+        // La estrategia guarda la copia del programa: en paginacion virtual
+        // no todas sus paginas estan en la memoria.
+        List<Instruccion> instrucciones = particionador.leerImagen(id);
 
         String error = guardarEnSwap(instrucciones, id, nombre,
                 bcp.getTiempoLlegada(), bcp.getPrioridad(), true);
@@ -387,8 +398,7 @@ public class GestorProcesos {
         }
 
         listaProcesos.sacar(bcp);
-        particionador.liberarParticion(base, tamano, id);
-        memoria.liberarBloqueUsuario(base, tamano);
+        particionador.liberar(id);
         memoria.liberarBloqueBCP(bcp.getDireccionBase());
 
         System.out.println("[NEW] Proceso " + id + " vuelve a NEW (sin BCP, en swap).");
@@ -416,19 +426,21 @@ public class GestorProcesos {
     private BCP admitirTrabajo(TrabajoNuevo t) {
         int tamano = t.getTamano();
 
-        int base = particionador.asignarParticion(tamano, t.getId());
-        if (base == -1) return null;
-
-        int direccionBCP = memoria.reservarBloqueBCP();
-        if (direccionBCP == -1) {
-            particionador.liberarParticion(base, tamano, t.getId());
-            return null;
-        }
-
+        // Se lee el programa del swap primero (sin borrarlo): la estrategia
+        // necesita las instrucciones para ubicarlas en la memoria.
         Object[] instruccionesArr = disco.leerBloqueSwap(t.getDirSwap(), tamano);
         List<Instruccion> instrucciones = new ArrayList<>();
         for (Object obj : instruccionesArr) {
             if (obj instanceof Instruccion) instrucciones.add((Instruccion) obj);
+        }
+
+        int base = particionador.cargar(t.getId(), instrucciones);
+        if (base == -1) return null;
+
+        int direccionBCP = memoria.reservarBloqueBCP();
+        if (direccionBCP == -1) {
+            particionador.liberar(t.getId());
+            return null;
         }
 
         if (!t.isArchivoCopiado()) {
@@ -583,10 +595,26 @@ public class GestorProcesos {
         List<BCP> terminadosEnEstePaso = new ArrayList<>();
         gestorCPUs.ejecutarPasoEnTodos(terminadosEnEstePaso);
 
+        // 6.5. Fallos de pagina (paginacion virtual): el proceso perdio el
+        //      segundo esperando que su pagina llegara del disco. No ejecuto
+        //      instruccion: en el Gantt se marca como espera y no gasta quantum.
+        java.util.Set<Integer> conFallo = new java.util.HashSet<>();
+        for (Nucleo nucleo : gestorCPUs.getNucleos()) {
+            EjecutorCPU ejecutor = nucleo.getDespachador().getEjecutorActual();
+            String fallo = (ejecutor != null) ? ejecutor.tomarFalloDePagina() : null;
+            if (fallo != null) {
+                BCP bcp = nucleo.getBcpActual();
+                conFallo.add(bcp.getId());
+                registroGantt.registrarEspera(nucleo.getIdNucleo(), bcp.getId(), relojGlobal);
+                anunciarContexto("CPU " + nucleo.getIdNucleo() + ": " + fallo);
+            }
+        }
+
         // 7. Registrar ejecuciones + incrementar contador de quantum
         //    (RR, Selfish RR, Lottery y MLFQ)
         for (Map.Entry<Integer, Integer> e : ejecucionesEnPaso.entrySet()) {
             int idProceso = e.getKey();
+            if (conFallo.contains(idProceso)) continue;
             registrarEjecucion(idProceso, e.getValue(), relojGlobal);
 
             if (usaQuantum()) {
@@ -861,9 +889,13 @@ public class GestorProcesos {
             ((PlanificadorMLFQ) planificador.getEstrategia()).olvidar(bcp);
         }
 
-        particionador.liberarParticion(bcp.getBase(), bcp.getAlcance(), bcp.getId());
-        memoria.liberarBloqueUsuario(bcp.getBase(), bcp.getAlcance());
+        // La estrategia libera lo que el proceso ocupaba (bloque, particion o
+        // marcos) y deja vacias sus celdas.
+        int fallos = particionador.getFallosDePagina(idProceso);
+        particionador.liberar(idProceso);
         memoria.liberarBloqueBCP(bcp.getDireccionBase());
+        anunciarContexto("Memoria (" + particionador.getNombre() + "): se libera lo que ocupaba P"
+                + idProceso + (fallos > 0 ? " (tuvo " + fallos + " fallos de pagina)" : ""));
 
         reactivarSiguienteProceso();
     }
@@ -881,8 +913,10 @@ public class GestorProcesos {
     }
 
     /**
-     * Carga las instrucciones en la particion, deja el BCP en READY y lo
-     * agrega a la cola de listos.
+     * Deja el BCP en READY y lo agrega a la cola de listos. Las
+     * instrucciones ya las escribio la estrategia de memoria en cargar().
+     * La base es fisica en las estrategias contiguas y 0 (logica) en
+     * paginacion.
      */
     private void admitirEnParticion(BCP bcp, List<Instruccion> instrucciones, int base) {
         bcp.setBase(base);
@@ -891,11 +925,6 @@ public class GestorProcesos {
         bcp.setEstado(EstadoProceso.READY);
         bcp.setRafaga(instrucciones.size());
         bcp.setTiempoRestante(instrucciones.size());
-
-        int pos = base;
-        for (Instruccion instr : instrucciones) {
-            memoria.escribir(pos++, instr);
-        }
 
         listaProcesos.agregar(bcp);
     }
@@ -971,7 +1000,7 @@ public class GestorProcesos {
     public String getNombreArchivo(int id) { return nombresPorId.get(id); }
 
     public Disco getDisco() { return disco; }
-    public ParticionadorDinamico getParticionador() { return particionador; }
+    public EstrategiaMemoria getEstrategiaMemoria() { return particionador; }
     public int getQuantumRR() { return quantumRR; }
 
     /**

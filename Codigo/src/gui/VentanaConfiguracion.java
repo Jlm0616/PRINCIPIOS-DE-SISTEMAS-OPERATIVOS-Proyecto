@@ -1,5 +1,7 @@
 package gui;
 
+import logica.memoria.ParametrosMemoria;
+
 import javax.swing.JDialog;
 import javax.swing.JPanel;
 import javax.swing.JButton;
@@ -39,6 +41,8 @@ public class VentanaConfiguracion extends JDialog {
     private int quantumRR;
     private int srrA;
     private int srrB;
+    private ParametrosMemoria parametrosMemoria;
+    private PanelConfigAsignacion panelAsignacion;
 
     /** Constructor legacy (sin quantum). Usa QUANTUM_DEFAULT. */
     public VentanaConfiguracion(Frame propietario,
@@ -71,7 +75,7 @@ public class VentanaConfiguracion extends JDialog {
              config.ConfiguracionExterna.SRR_B_DEFAULT);
     }
 
-    /** Constructor completo (con quantum y a, b de Selfish RR). */
+    /** Constructor con quantum y a, b de Selfish RR (memoria con First Fit). */
     public VentanaConfiguracion(Frame propietario,
                                  int tamanoMemoriaActual,
                                  int limiteKernelActual,
@@ -83,7 +87,27 @@ public class VentanaConfiguracion extends JDialog {
                                  int quantumActual,
                                  int srrAActual,
                                  int srrBActual) {
+        this(propietario, tamanoMemoriaActual, limiteKernelActual,
+             tamanoDiscoActual, maxArchivosActual, tamanoSwapActual,
+             cpusActual, algoritmoActual, quantumActual, srrAActual, srrBActual,
+             ParametrosMemoria.porDefecto());
+    }
+
+    /** Constructor completo (con quantum, a, b de Selfish RR y estrategia de memoria). */
+    public VentanaConfiguracion(Frame propietario,
+                                 int tamanoMemoriaActual,
+                                 int limiteKernelActual,
+                                 int tamanoDiscoActual,
+                                 int maxArchivosActual,
+                                 int tamanoSwapActual,
+                                 int cpusActual,
+                                 String algoritmoActual,
+                                 int quantumActual,
+                                 int srrAActual,
+                                 int srrBActual,
+                                 ParametrosMemoria parametrosMemoriaActual) {
         super(propietario, "Configuracion", true);
+        this.parametrosMemoria = parametrosMemoriaActual;
         this.confirmado = false;
         this.tamanoMemoria = tamanoMemoriaActual;
         this.limiteKernel = limiteKernelActual;
@@ -173,6 +197,8 @@ public class VentanaConfiguracion extends JDialog {
         tabs.addTab("Memoria", panelMemoria);
         tabs.addTab("Disco", panelDisco);
         tabs.addTab("CPUs", panelCPU);
+        panelAsignacion = new PanelConfigAsignacion(parametrosMemoria);
+        tabs.addTab("Asignacion de memoria", panelAsignacion);
 
         JButton btnAceptar = new JButton("Aceptar");
         JButton btnCancelar = new JButton("Cancelar");
@@ -199,6 +225,10 @@ public class VentanaConfiguracion extends JDialog {
         }
         if (!panelDisco.validar()) {
             tabs.setSelectedComponent(panelDisco);
+            return;
+        }
+        if (!panelAsignacion.validar()) {
+            tabs.setSelectedComponent(panelAsignacion);
             return;
         }
 
@@ -229,6 +259,7 @@ public class VentanaConfiguracion extends JDialog {
         cantidadCPUs = panelCPU.getCantidadCPUs();
         algoritmoCPU = panelCPU.getAlgoritmoCPU();
         quantumRR = panelCPU.getQuantum();
+        parametrosMemoria = panelAsignacion.getParametrosMemoria();
         srrA = panelCPU.getSrrA();
         srrB = panelCPU.getSrrB();
 
@@ -285,6 +316,13 @@ public class VentanaConfiguracion extends JDialog {
     /**
      * @return b de Selfish RR: incremento de prioridad de los aceptados.
      */
+    /**
+     * @return estrategia de asignacion de memoria y sus parametros.
+     */
+    public ParametrosMemoria getParametrosMemoria() {
+        return parametrosMemoria;
+    }
+
     public int getSrrB() {
         return srrB;
     }

@@ -39,7 +39,8 @@ import java.util.function.IntFunction;
  *
  * Celdas:
  *   - llena con el color del proceso: el proceso ejecuto en ese segundo;
- *   - rayada: el proceso ocupo el nucleo esperando el disco (INT 21H).
+ *   - rayada: el proceso ocupo el nucleo esperando el disco (INT 21H o
+ *     un fallo de pagina en paginacion virtual).
  *
  * Los datos vienen de {@link RegistroGantt}; este panel solo dibuja.
  */
@@ -135,7 +136,7 @@ public class PanelGanttVivo extends JPanel {
         JPanel leyenda = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
         leyenda.setOpaque(false);
         leyenda.add(etiquetaLeyenda(new MuestraCelda(false), "Ejecuta en el nucleo"));
-        leyenda.add(etiquetaLeyenda(new MuestraCelda(true), "Espera el disco (INT 21H)"));
+        leyenda.add(etiquetaLeyenda(new MuestraCelda(true), "Espera el disco (INT 21H o fallo de pagina)"));
         JPanel actual = new JPanel();
         actual.setBackground(COLOR_ACTUAL);
         actual.setPreferredSize(new Dimension(14, 14));

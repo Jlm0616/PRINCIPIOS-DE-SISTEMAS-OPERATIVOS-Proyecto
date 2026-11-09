@@ -36,6 +36,9 @@ public class Despachador {
     private final Memoria memoria;
     private Disco disco;
 
+    /** Estrategia de memoria: la CPU traduce cada direccion con ella. */
+    private logica.memoria.EstrategiaMemoria estrategiaMemoria;
+
     /** Direccion base del BCP actual (-1 si no hay proceso). */
     private int direccionBCPActual;
 
@@ -82,6 +85,7 @@ public class Despachador {
         // Crear un ejecutor para este proceso
         this.direccionBCPActual = direccionBCP;
         this.ejecutorActual = new EjecutorCPU(cpu, memoria, bcp, disco);
+        ejecutorActual.setEstrategiaMemoria(estrategiaMemoria);
 
         // Propagar callbacks de interrupciones
         ejecutorActual.setSalidaPantalla(salidaPantalla);
@@ -173,5 +177,10 @@ public class Despachador {
     // Asigna el disco que usarán las interrupciones.
     public void setDisco(Disco disco) {
         this.disco = disco;
+    }
+
+    // Asigna la estrategia de memoria con la que la CPU traduce direcciones.
+    public void setEstrategiaMemoria(logica.memoria.EstrategiaMemoria estrategiaMemoria) {
+        this.estrategiaMemoria = estrategiaMemoria;
     }
 }

@@ -1,5 +1,6 @@
 package config;
 
+import logica.memoria.ParametrosMemoria;
 import modelo.BCP;
 import modelo.Memoria;
 
@@ -24,6 +25,14 @@ import java.util.Properties;
  *     Lottery, Guaranteed, MLFQ.
  *   - quantum aplica para RR, Lottery y Selfish RR. Default = 1.
  *   - srr_a y srr_b solo aplican para Selfish RR.
+ *   - Estrategia de asignacion de memoria y sus parametros:
+ *       estrategia_memoria = First Fit | Next Fit | Best Fit | Fija igual |
+ *                            Fija distinta | Paginacion | Paginacion virtual
+ *       particion_tamano   (Fija igual)          default 16
+ *       particiones        (Fija distinta)       default 8,16,32,64
+ *       pagina_tamano      (Paginacion)          default 4
+ *       marcos_por_proceso (Paginacion virtual)  default 2
+ *       reemplazo          (Paginacion virtual)  FIFO | LRU, default FIFO
  */
 public class ConfiguracionExterna {
 
@@ -84,6 +93,7 @@ public class ConfiguracionExterna {
     private int quantum         = QUANTUM_DEFAULT;
     private int srrA            = SRR_A_DEFAULT;
     private int srrB            = SRR_B_DEFAULT;
+    private ParametrosMemoria parametrosMemoria = ParametrosMemoria.porDefecto();
 
     private boolean huboCorrecciones = false;
     private final StringBuilder mensajesCorrecciones = new StringBuilder();
@@ -114,6 +124,16 @@ public class ConfiguracionExterna {
             srrA           = parsear(props, "srr_a",          srrA);
             srrB           = parsear(props, "srr_b",          srrB);
 
+            // Estrategia de memoria y sus parametros
+            ParametrosMemoria def = ParametrosMemoria.porDefecto();
+            parametrosMemoria = new ParametrosMemoria(
+                    props.getProperty("estrategia_memoria", def.getEstrategia()),
+                    parsear(props, "particion_tamano", def.getParticionTamano()),
+                    props.getProperty("particiones", def.getParticiones()),
+                    parsear(props, "pagina_tamano", def.getPaginaTamano()),
+                    parsear(props, "marcos_por_proceso", def.getMarcosPorProceso()),
+                    props.getProperty("reemplazo", def.getReemplazo()));
+
             // Leer el algoritmo (si no está, usa FCFS)
             algoritmoCPU = props.getProperty("algoritmo_cpu", ALGORITMO_CPU_DEFAULT).toUpperCase();
 
@@ -128,6 +148,7 @@ public class ConfiguracionExterna {
                     + (esRR() ? " (quantum=" + quantum + ")" : "")
                     + (esSelfishRR() ? " (quantum=" + quantum + ", a=" + srrA
                             + ", b=" + srrB + ")" : ""));
+            System.out.println("[CONFIG]   Memoria de usuario: " + parametrosMemoria.describir());
             System.out.println("[CONFIG]   MaxProcesos: " + MAX_PROCESOS
                     + " (FIJO por CPU)");
 
@@ -265,6 +286,17 @@ public class ConfiguracionExterna {
                     + " invalido (rango " + SRR_B_MINIMO + " a " + SRR_B_MAXIMO + "). Usando "
                     + SRR_B_DEFAULT + ".");
             srrB = SRR_B_DEFAULT;
+        }
+
+        // ==== ESTRATEGIA DE MEMORIA y sus parametros ====
+        java.util.List<String> erroresMemoria = parametrosMemoria.validar();
+        if (!erroresMemoria.isEmpty()) {
+            for (String err : erroresMemoria) {
+                agregarCorreccion("memoria de usuario: " + err);
+            }
+            agregarCorreccion("Usando la estrategia por defecto: "
+                    + ParametrosMemoria.porDefecto().describir() + ".");
+            parametrosMemoria = ParametrosMemoria.porDefecto();
         }
 
         // ==== QUANTUM (aplica para RR, Lottery y Selfish RR) ====
@@ -427,6 +459,12 @@ public class ConfiguracionExterna {
         props.setProperty("quantum",         String.valueOf(quantum));
         props.setProperty("srr_a",           String.valueOf(srrA));
         props.setProperty("srr_b",           String.valueOf(srrB));
+        props.setProperty("estrategia_memoria", parametrosMemoria.getEstrategia());
+        props.setProperty("particion_tamano",   String.valueOf(parametrosMemoria.getParticionTamano()));
+        props.setProperty("particiones",        parametrosMemoria.getParticiones());
+        props.setProperty("pagina_tamano",      String.valueOf(parametrosMemoria.getPaginaTamano()));
+        props.setProperty("marcos_por_proceso", String.valueOf(parametrosMemoria.getMarcosPorProceso()));
+        props.setProperty("reemplazo",          parametrosMemoria.getReemplazo());
 
         try (FileOutputStream out = new FileOutputStream(ARCHIVO)) {
             props.store(out, "Configuracion del Sistema - Proyecto 2 SO");
@@ -463,6 +501,7 @@ public class ConfiguracionExterna {
     public int getQuantum()        { return quantum; }
     public int getSrrA()           { return srrA; }
     public int getSrrB()           { return srrB; }
+    public ParametrosMemoria getParametrosMemoria() { return parametrosMemoria; }
     public int getMaxProcesos()    { return MAX_PROCESOS; }
 
     public boolean huboCorrecciones() { return huboCorrecciones; }
@@ -480,6 +519,9 @@ public class ConfiguracionExterna {
     public void setQuantum(int v)        { this.quantum = v; }
     public void setSrrA(int v)           { this.srrA = v; }
     public void setSrrB(int v)           { this.srrB = v; }
+    public void setParametrosMemoria(ParametrosMemoria v) {
+        this.parametrosMemoria = (v != null) ? v : ParametrosMemoria.porDefecto();
+    }
 
     @Override
     public String toString() {
@@ -494,6 +536,7 @@ public class ConfiguracionExterna {
                 + ", quantum=" + quantum
                 + ", srrA=" + srrA
                 + ", srrB=" + srrB
+                + ", memoria=" + parametrosMemoria.describir()
                 + ", maxProcesos=" + MAX_PROCESOS
                 + "}";
     }

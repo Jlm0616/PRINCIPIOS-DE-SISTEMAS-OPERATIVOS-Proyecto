@@ -4,7 +4,9 @@ import config.ConfiguracionExterna;
 import logica.GestorProcesos;
 import logica.ListaProcesos;
 import logica.ListaDeTrabajos;
-import logica.ParticionadorDinamico;
+import logica.memoria.EstrategiaMemoria;
+import logica.memoria.FabricaMemoria;
+import logica.memoria.ParametrosMemoria;
 import logica.ResultadoCarga;
 import logica.BCPTerminado;
 import logica.estadisticas.Estadisticas;
@@ -62,12 +64,13 @@ public class VentanaPrincipal extends JFrame {
     private int quantumRRActual;
     private int srrAActual;
     private int srrBActual;
+    private ParametrosMemoria parametrosMemoriaActual = ParametrosMemoria.porDefecto();
 
     private Memoria memoria;
     private CPU cpu;
     private ListaProcesos listaProcesos;
     private ListaDeTrabajos listaDeTrabajos;
-    private ParticionadorDinamico particionador;
+    private EstrategiaMemoria particionador;   // estrategia de asignacion de memoria
     private GestorProcesos gestor;
     private Disco disco;
 
@@ -117,7 +120,18 @@ public class VentanaPrincipal extends JFrame {
             }
         });
 
-        inicializarSistema();
+        try {
+            inicializarSistema();
+        } catch (ErrorAsignacionMemoria e) {
+            // La estrategia de config.txt no sirve con esta memoria (por
+            // ejemplo, una particion mas grande que la zona de usuario).
+            JOptionPane.showMessageDialog(this,
+                    e.getMessage() + "\n\nSe usa " + ParametrosMemoria.ESTRATEGIA_DEFAULT
+                    + ". Puedes cambiarlo en 'Configurar'.",
+                    "Asignacion de memoria", JOptionPane.WARNING_MESSAGE);
+            parametrosMemoriaActual = ParametrosMemoria.porDefecto();
+            inicializarSistema();
+        }
         inicializarComponentes();
         refrescarTodo();
 
@@ -146,6 +160,7 @@ public class VentanaPrincipal extends JFrame {
         this.quantumRRActual = config.getQuantum();
         this.srrAActual = config.getSrrA();
         this.srrBActual = config.getSrrB();
+        this.parametrosMemoriaActual = config.getParametrosMemoria();
     }
 
     // Aplica el LookAndFeel Nimbus si está disponible.
@@ -163,6 +178,16 @@ public class VentanaPrincipal extends JFrame {
     }
 
     /**
+     * La estrategia de memoria elegida no sirve con esta memoria (por
+     * ejemplo, una particion o una pagina mas grande que la zona de usuario).
+     */
+    private static class ErrorAsignacionMemoria extends IllegalArgumentException {
+        ErrorAsignacionMemoria(String mensaje) {
+            super(mensaje);
+        }
+    }
+
+    /**
      * Inicializa el sistema con la configuracion actual.
      */
     private void inicializarSistema() {
@@ -170,18 +195,28 @@ public class VentanaPrincipal extends JFrame {
             // El limite de procesos ahora es 5 por cada CPU configurada
             int maxProcesosReales = cantidadCPUsActual * 5;
 
-            memoria = new Memoria(tamanoMemoriaActual, limiteKernelActual,
+            Memoria nuevaMemoria = new Memoria(tamanoMemoriaActual, limiteKernelActual,
                                   maxProcesosReales, maxArchivosActual);
+
+            // Estrategia de asignacion de la memoria de usuario elegida en la
+            // configuracion (First Fit, Next Fit, Best Fit, particiones fijas,
+            // paginacion o paginacion virtual). Se crea antes de reemplazar
+            // nada: si sus parametros no sirven, el sistema anterior sigue igual.
+            EstrategiaMemoria nuevaEstrategia;
+            try {
+                nuevaEstrategia = FabricaMemoria.crear(parametrosMemoriaActual, nuevaMemoria);
+            } catch (IllegalArgumentException e) {
+                throw new ErrorAsignacionMemoria("Asignacion de memoria ("
+                        + parametrosMemoriaActual.describir() + "): " + e.getMessage());
+            }
+
+            memoria = nuevaMemoria;
+            particionador = nuevaEstrategia;
             cpu = new CPU(limiteKernelActual);
             disco = new Disco(tamanoDiscoActual, maxArchivosActual, tamanoSwapActual);
 
             listaProcesos = new ListaProcesos();
             listaDeTrabajos = new ListaDeTrabajos(memoria);
-
-            particionador = new ParticionadorDinamico(
-                    memoria,
-                    memoria.getLimiteKernelUsuario(),
-                    memoria.getEspacioUsuarioDisponible());
 
             // Se pasa la cantidad de CPUs, el algoritmo, el quantum y a, b de
             // Selfish RR al GestorProcesos
@@ -193,6 +228,8 @@ public class VentanaPrincipal extends JFrame {
             // Reiniciar el balanceador al crear el sistema
             gestor.reiniciarBalanceador();
 
+        } catch (ErrorAsignacionMemoria e) {
+            throw e;   // lo explica quien llamo (arranque o 'Configurar')
         } catch (IllegalArgumentException e) {
             int kernelMinimoParaUno = Memoria.getTamanoKernelMinimo(1, maxArchivosActual);
 
@@ -581,6 +618,7 @@ public class VentanaPrincipal extends JFrame {
         int viejoQuantum = this.quantumRRActual;
         int viejoSrrA = this.srrAActual;
         int viejoSrrB = this.srrBActual;
+        ParametrosMemoria viejosParametrosMemoria = this.parametrosMemoriaActual;
 
         VentanaConfiguracion dialogo = new VentanaConfiguracion(
                 this,
@@ -593,7 +631,8 @@ public class VentanaPrincipal extends JFrame {
                 algoritmoCPUActual,
                 quantumRRActual,
                 srrAActual,
-                srrBActual);
+                srrBActual,
+                parametrosMemoriaActual);
 
         dialogo.setVisible(true);
 
@@ -609,6 +648,7 @@ public class VentanaPrincipal extends JFrame {
         int nuevoQuantum = dialogo.getQuantum();
         int nuevoSrrA = dialogo.getSrrA();
         int nuevoSrrB = dialogo.getSrrB();
+        ParametrosMemoria nuevosParametrosMemoria = dialogo.getParametrosMemoria();
 
         this.tamanoMemoriaActual = nuevoTamano;
         this.limiteKernelActual = nuevoKernel;
@@ -620,6 +660,7 @@ public class VentanaPrincipal extends JFrame {
         this.quantumRRActual = nuevoQuantum;
         this.srrAActual = nuevoSrrA;
         this.srrBActual = nuevoSrrB;
+        this.parametrosMemoriaActual = nuevosParametrosMemoria;
 
         try {
             inicializarSistema();
@@ -634,6 +675,7 @@ public class VentanaPrincipal extends JFrame {
             this.quantumRRActual = viejoQuantum;
             this.srrAActual = viejoSrrA;
             this.srrBActual = viejoSrrB;
+            this.parametrosMemoriaActual = viejosParametrosMemoria;
 
             JOptionPane.showMessageDialog(this,
                     "La configuracion no es valida:\n\n"
@@ -654,6 +696,7 @@ public class VentanaPrincipal extends JFrame {
         config.setQuantum(nuevoQuantum);
         config.setSrrA(nuevoSrrA);
         config.setSrrB(nuevoSrrB);
+        config.setParametrosMemoria(nuevosParametrosMemoria);
         config.guardar();
 
         configurarCallbacks();
@@ -689,6 +732,8 @@ public class VentanaPrincipal extends JFrame {
                 + maxArchivosActual + " entradas)");
         panelPantalla.agregarMensaje(">>   CPUs: " + cantidadCPUsActual
                 + " | Algoritmo: " + algoritmoCPUActual + parametrosAlgoritmo());
+        panelPantalla.agregarMensaje(">>   Asignacion de memoria: " + parametrosMemoriaActual.describir());
+        panelPantalla.agregarMensaje(">>     " + particionador.resumen());
         panelPantalla.agregarMensaje(">>   Disco: " + tamanoDiscoActual
                 + " posiciones (maxArchivos=" + maxArchivosActual
                 + ", swap=" + tamanoSwapActual + ")");
@@ -805,7 +850,10 @@ public class VentanaPrincipal extends JFrame {
             if (nucleo.estaOcupado()) {
                 BCP bcp = nucleo.getBcpActual();
                 if (bcp != null) {
-                    irsPorCPU.put(bcp.getIr(), nucleo.getIdNucleo());
+                    // En paginacion el IR guarda la direccion logica: se
+                    // traduce a la fisica para resaltar la celda correcta.
+                    int fisica = particionador.traducir(bcp.getId(), bcp.getIr());
+                    if (fisica >= 0) irsPorCPU.put(fisica, nucleo.getIdNucleo());
                 }
             }
         }
@@ -819,7 +867,7 @@ public class VentanaPrincipal extends JFrame {
                 gestor.getProcesosBloqueadosInput(),
                 gestor.getTrabajosNuevos());
 
-        panelMemoria.actualizar(memoria, irsPorCPU);
+        panelMemoria.actualizar(memoria, irsPorCPU, particionador);
         panelDisco.actualizar(disco);
 
         // 3. Diagrama de Gantt en vivo (incluye los procesos que siguen corriendo)

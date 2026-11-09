@@ -42,6 +42,16 @@ public class EjecutorCPU {
     /** Indica si el programa ya terminó (INT 20H, EXIT, o error fatal). */
     private boolean programaTerminado;
 
+    /**
+     * Estrategia de memoria: traduce la direccion del PC a la fisica. En las
+     * contiguas es la misma; en paginacion el PC es logico. Si es null, la
+     * direccion se usa tal cual.
+     */
+    private logica.memoria.EstrategiaMemoria estrategiaMemoria;
+
+    /** Fallo de pagina del ultimo segundo, para GestorProcesos (null si no hubo). */
+    private String falloDePagina;
+
     public static final int MAX_CICLOS_AUTOMATICO = 1;
 
     // Crea el ejecutor para un BCP, con su CPU, memoria y disco.
@@ -72,7 +82,16 @@ public class EjecutorCPU {
                 return true;
             }
 
-            Instruccion instr = memoria.leerInstruccion(pc);
+            // === Traduccion de la direccion (memoria) ===
+            int fisica = accederInstruccion(pc);
+            if (fisica == logica.memoria.EstrategiaMemoria.FALLO_DE_PAGINA) {
+                // Paginacion virtual: la pagina no esta. Se trae del disco y
+                // este segundo se pierde; la instruccion se hace en el siguiente.
+                falloDePagina = estrategiaMemoria.atenderFalloDePagina(bcp.getId(), pc);
+                return false;
+            }
+
+            Instruccion instr = memoria.leerInstruccion(fisica);
 
             if (instr == null) {
                 terminarNormal("no hay más instrucciones en la posición " + pc);
@@ -90,7 +109,7 @@ public class EjecutorCPU {
         }
 
         int pc = cpu.getPC();
-        Instruccion instr = memoria.leerInstruccion(pc);
+        Instruccion instr = memoria.leerInstruccion(direccionFisica(pc));
 
         boolean saltoEjecutado;
         try {
@@ -134,6 +153,34 @@ public class EjecutorCPU {
             terminarConError("Máximo de ciclos alcanzado (posible ciclo infinito)");
         }
         return segundos;
+    }
+
+    /* ==================== MEMORIA ==================== */
+
+    // Asigna la estrategia de memoria con la que se traduce el PC.
+    public void setEstrategiaMemoria(logica.memoria.EstrategiaMemoria estrategiaMemoria) {
+        this.estrategiaMemoria = estrategiaMemoria;
+    }
+
+    // Direccion fisica del PC, sin efectos (la pagina ya esta cargada).
+    private int direccionFisica(int pc) {
+        return (estrategiaMemoria == null) ? pc : estrategiaMemoria.traducir(bcp.getId(), pc);
+    }
+
+    // Acceso de la CPU en el fetch: traduce y anota el uso (LRU).
+    private int accederInstruccion(int pc) {
+        return (estrategiaMemoria == null) ? pc
+                : estrategiaMemoria.accederInstruccion(bcp.getId(), pc);
+    }
+
+    /**
+     * Devuelve el fallo de pagina del ultimo segundo (o null) y lo borra.
+     * Lo consulta GestorProcesos despues de cada paso.
+     */
+    public String tomarFalloDePagina() {
+        String f = falloDePagina;
+        falloDePagina = null;
+        return f;
     }
 
     /* ==================== VALIDACIONES ==================== */

@@ -39,6 +39,11 @@ public class PanelMemoria extends JPanel {
     private boolean mostrarSoloOcupadas = false;
 
     private Memoria memoriaActual;
+
+    // Estrategia de asignacion de la memoria de usuario: dice de quien es
+    // cada celda (proceso, hueco, particion, marco) para la columna Zona.
+    private logica.memoria.EstrategiaMemoria estrategia;
+    private JLabel lblEstrategia;
     
     // Mapa para guardar qué CPU tiene su IR en qué posición de memoria
     // Clave: posición de memoria, Valor: ID de la CPU
@@ -50,6 +55,7 @@ public class PanelMemoria extends JPanel {
     private static final Color COLOR_TABLA_MEM      = new Color(0xF3, 0xE5, 0xF5);  // lila muy claro
     private static final Color COLOR_USUARIO        = Color.WHITE;
     private static final Color COLOR_LIBRE          = new Color(0xF0, 0xF0, 0xF0);  // gris muy claro
+    private static final Color COLOR_FRAGMENTACION  = new Color(0xFF, 0xE0, 0xB2);  // naranja claro
 
     // Crea el panel y construye su interfaz gráfica.
     public PanelMemoria() {
@@ -89,8 +95,17 @@ public class PanelMemoria extends JPanel {
         lblUso.setFont(Paleta.FUENTE_LABEL);
         lblUso.setForeground(Paleta.TEXTO_NORMAL);
 
+        lblEstrategia = new JLabel(" ");
+        lblEstrategia.setFont(Paleta.FUENTE_LABEL);
+        lblEstrategia.setForeground(Paleta.VERDE_OSCURO);
+
+        JPanel textos = new JPanel(new java.awt.GridLayout(2, 1));
+        textos.setOpaque(false);
+        textos.add(lblUso);
+        textos.add(lblEstrategia);
+
         panelUso.add(barraUso, BorderLayout.CENTER);
-        panelUso.add(lblUso, BorderLayout.SOUTH);
+        panelUso.add(textos, BorderLayout.SOUTH);
 
         add(panelUso, BorderLayout.NORTH);
 
@@ -111,8 +126,8 @@ public class PanelMemoria extends JPanel {
         tabla.getTableHeader().setFont(Paleta.FUENTE_LABEL_BOLD);
 
         tabla.getColumnModel().getColumn(0).setPreferredWidth(50);
-        tabla.getColumnModel().getColumn(1).setPreferredWidth(100);
-        tabla.getColumnModel().getColumn(2).setPreferredWidth(350);
+        tabla.getColumnModel().getColumn(1).setPreferredWidth(190);
+        tabla.getColumnModel().getColumn(2).setPreferredWidth(260);
 
         tabla.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
@@ -137,7 +152,7 @@ public class PanelMemoria extends JPanel {
                     return c;
                 }
 
-                c.setBackground(colorDeZona(zona));
+                c.setBackground(colorDeCelda(pos, zona));
                 c.setForeground(Paleta.TEXTO_NORMAL);
                 setFont(Paleta.FUENTE_MONO);
                 return c;
@@ -167,6 +182,25 @@ public class PanelMemoria extends JPanel {
         add(panelBoton, BorderLayout.SOUTH);
     }
 
+    // Color de fondo de una celda. En la zona usuario, el color claro del
+    // proceso dueno; los huecos y particiones libres en gris; la
+    // fragmentacion interna en naranja claro.
+    private Color colorDeCelda(int pos, String zona) {
+        if (memoriaActual != null && estrategia != null
+                && pos >= memoriaActual.getLimiteKernelUsuario()) {
+            int dueno = estrategia.procesoEnCelda(pos);
+            if (dueno >= 0) return aclarar(Paleta.getColorProceso(dueno));
+            if (zona.contains("frag")) return COLOR_FRAGMENTACION;
+            return COLOR_LIBRE;
+        }
+        return colorDeZona(zona);
+    }
+
+    private static Color aclarar(Color c) {
+        return new Color((c.getRed() + 3 * 255) / 4, (c.getGreen() + 3 * 255) / 4,
+                         (c.getBlue() + 3 * 255) / 4);
+    }
+
     // Devuelve el color de fondo correspondiente a la zona.
     private Color colorDeZona(String zona) {
         if (zona == null) return COLOR_USUARIO;
@@ -178,6 +212,16 @@ public class PanelMemoria extends JPanel {
             case "Libre":     return COLOR_LIBRE;
             default:          return COLOR_USUARIO;
         }
+    }
+
+    // Actualiza el panel con la memoria, los IRs de las CPUs y la estrategia
+    // de asignacion (para saber de quien es cada celda de la zona usuario).
+    public void actualizar(Memoria memoria, Map<Integer, Integer> irsPorCPU,
+                           logica.memoria.EstrategiaMemoria estrategia) {
+        this.estrategia = estrategia;
+        lblEstrategia.setText(estrategia != null ? estrategia.resumen() : " ");
+        lblEstrategia.setToolTipText(estrategia != null ? estrategia.resumen() : null);
+        actualizar(memoria, irsPorCPU);
     }
 
     // Actualiza el panel con la memoria y los IRs de las CPUs.
@@ -227,7 +271,8 @@ public class PanelMemoria extends JPanel {
         }
         if (pos >= memoriaActual.getLimiteKernelUsuario()
                 && pos < memoriaActual.getTamanoMemoria()) {
-            return "Usuario";
+            String desc = (estrategia != null) ? estrategia.describirCelda(pos) : null;
+            return (desc != null) ? desc : "Usuario";
         }
         if (pos < memoriaActual.getLimiteKernelUsuario()) {
             return "Libre";
@@ -327,6 +372,10 @@ public class PanelMemoria extends JPanel {
 
         int posEnBloque = offset % 3;
 
+        // La paginacion guarda la tabla de paginas como texto: se muestra tal cual.
+        if (posEnBloque > 0 && contenido instanceof String) {
+            return (String) contenido;
+        }
         switch (posEnBloque) {
             case 0: return "ID Proceso: " + contenido;
             case 1: return "Inicio: " + contenido;
