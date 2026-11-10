@@ -33,10 +33,23 @@ import java.util.List;
 /**
  * Ventana modal de estadisticas de procesos terminados.
  *
- * Organizada en 3 pestañas:
- *   - Resumen:  totales, promedios, Tr/Ts.
+ * Organizada en pestañas:
+ *   - Error de ejecucion (si la ejecucion termino mal, ANTES de las demas).
+ *   - Resumen:  totales, promedios, Tr/Ts y nombre del algoritmo.
  *   - Procesos: tabla con todos los procesos + detalle del seleccionado.
  *   - Gantt:    diagrama de ejecucion por CPU.
+ *
+ * Si el calculo de {@link Estadisticas} falla (por ejemplo, porque la
+ * ejecucion termino a medias y hay datos corruptos), la ventana NO
+ * crashea: muestra una pestaña de "Error" con el mensaje, de modo que
+ * el usuario sabe que la ejecucion termino por ese problema.
+ *
+ * Si la ejecucion automatica termino por un error (bucle infinito,
+ * excepcion, cancelacion), el gestor lo reporta en
+ * {@code getErrorEjecucion()} y la ventana agrega una pestaña
+ * "Error de ejecucion" adicional. En ese caso las 3 pestañas normales
+ * SI se muestran: los procesos que terminaron tienen estadisticas
+ * validas.
  *
  * PROYECTO 2 - SOLID:
  *  - La ventana NO calcula estadisticas. Delega TODO a {@link Estadisticas}.
@@ -49,6 +62,15 @@ public class VentanaEstadisticas extends JDialog {
     private JTable tabla;
     private DefaultTableModel modelo;
     private Estadisticas estadisticas;
+
+    /** Nombre del algoritmo activo (para mostrar en la ventana). */
+    private final String algoritmoCPU;
+
+    /** Si el calculo de estadisticas fallo, aqui queda el mensaje. */
+    private String errorCalculo;
+
+    /** Si la ejecucion termino por un error, aqui queda el mensaje. */
+    private final String errorEjecucion;
 
     // Panel de detalle
     private JLabel lblId;
@@ -65,16 +87,51 @@ public class VentanaEstadisticas extends JDialog {
     private JLabel lblAlcance;
 
     /**
-     * Crea la ventana modal con la lista de procesos terminados.
-     *
-     * @param propietario frame padre
-     * @param procesos    lista de snapshots de procesos terminados
+     * Constructor legacy (sin nombre de algoritmo). Se mantiene por
+     * compatibilidad: delega al constructor nuevo con algoritmo = null.
      */
     public VentanaEstadisticas(Frame propietario, List<BCPTerminado> procesos) {
+        this(propietario, procesos, null, null);
+    }
+
+    /**
+     * Constructor con nombre de algoritmo, sin error de ejecucion.
+     * Se mantiene por compatibilidad.
+     */
+    public VentanaEstadisticas(Frame propietario, List<BCPTerminado> procesos,
+                               String algoritmoCPU) {
+        this(propietario, procesos, algoritmoCPU, null);
+    }
+
+    /**
+     * Crea la ventana modal con la lista de procesos terminados, el
+     * nombre del algoritmo activo y, si la ejecucion termino mal, el
+     * mensaje de error.
+     *
+     * @param propietario    frame padre
+     * @param procesos       lista de snapshots de procesos terminados
+     * @param algoritmoCPU   nombre del algoritmo (p. ej. "MLFQ"); puede ser null
+     * @param errorEjecucion mensaje si la ejecucion termino por un error; puede ser null
+     */
+    public VentanaEstadisticas(Frame propietario, List<BCPTerminado> procesos,
+                               String algoritmoCPU, String errorEjecucion) {
         super(propietario, "Estadisticas de Procesos", true);
 
-        // Delegacion del calculo (DIP)
-        this.estadisticas = new Estadisticas(procesos);
+        this.algoritmoCPU = (algoritmoCPU != null && !algoritmoCPU.isEmpty())
+                ? algoritmoCPU : "(desconocido)";
+        this.errorEjecucion = (errorEjecucion != null && !errorEjecucion.isEmpty())
+                ? errorEjecucion : null;
+
+        // Delegacion del calculo (DIP). Si falla, NO se rompe la ventana:
+        // se guarda el mensaje y se muestra una pestaña de Error.
+        try {
+            this.estadisticas = new Estadisticas(procesos);
+        } catch (RuntimeException ex) {
+            this.estadisticas = null;
+            this.errorCalculo = "La ejecucion termino con un error al calcular"
+                    + " las estadisticas:\n\n" + ex.getClass().getSimpleName()
+                    + ": " + ex.getMessage();
+        }
 
         construirInterfaz();
         pack();
@@ -90,8 +147,8 @@ public class VentanaEstadisticas extends JDialog {
         mainPanel.setBorder(new EmptyBorder(15, 15, 15, 15));
         setContentPane(mainPanel);
 
-        // ==== Titulo ====
-        JLabel lblTitulo = new JLabel("Estadisticas de Procesos");
+        // ==== Titulo (con nombre del algoritmo) ====
+        JLabel lblTitulo = new JLabel("Estadisticas de Procesos \u2014 Algoritmo: " + algoritmoCPU);
         lblTitulo.setFont(Paleta.FUENTE_TITULO);
         lblTitulo.setForeground(Paleta.VERDE_OSCURO);
         mainPanel.add(lblTitulo, BorderLayout.NORTH);
@@ -100,9 +157,20 @@ public class VentanaEstadisticas extends JDialog {
         JTabbedPane tabs = new JTabbedPane();
         tabs.setFont(Paleta.FUENTE_LABEL_BOLD);
 
-        tabs.addTab("Resumen", crearPestanaResumen());
-        tabs.addTab("Procesos", crearPestanaProcesos());
-        tabs.addTab("Diagrama Gantt", crearPestanaGantt());
+        if (errorCalculo != null) {
+            // Si fallo el calculo de Estadisticas, mostramos SOLO la
+            // pestaña de Error de calculo: no hay datos que mostrar.
+            tabs.addTab("Error", crearPestanaErrorCalculo());
+        } else {
+            // Si la ejecucion termino por un error, agregamos una pestaña
+            // de Error de ejecucion ANTES de las pestañas normales.
+            if (errorEjecucion != null) {
+                tabs.addTab("Error de ejecucion", crearPestanaErrorEjecucion());
+            }
+            tabs.addTab("Resumen", crearPestanaResumen());
+            tabs.addTab("Procesos", crearPestanaProcesos());
+            tabs.addTab("Diagrama Gantt", crearPestanaGantt());
+        }
 
         mainPanel.add(tabs, BorderLayout.CENTER);
 
@@ -118,6 +186,76 @@ public class VentanaEstadisticas extends JDialog {
         panelBotones.setOpaque(false);
         panelBotones.add(btnCerrar);
         mainPanel.add(panelBotones, BorderLayout.SOUTH);
+    }
+
+    /* ==================== PESTAÑA: ERROR DE CALCULO ==================== */
+
+    // Crea la pestaña que se muestra si el calculo de estadisticas fallo.
+    private JPanel crearPestanaErrorCalculo() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(Paleta.FONDO_GENERAL);
+        panel.setBorder(new EmptyBorder(15, 15, 15, 15));
+
+        JLabel lblError = new JLabel("<html><body style='width: 800px'>"
+                + "<h2 style='color:#B00020'>No se pudieron calcular las estadisticas</h2>"
+                + "<p>Detalle tecnico:</p>"
+                + "<pre style='background:#F8F9FA; padding:10px; border:1px solid #E0E0E0'>"
+                + escaparHtml(errorCalculo)
+                + "</pre>"
+                + "<p>Revisa la consola para mas informacion.</p>"
+                + "</body></html>");
+        lblError.setFont(Paleta.FUENTE_MONO);
+        lblError.setForeground(Paleta.TEXTO_NORMAL);
+
+        JScrollPane scroll = new JScrollPane(lblError);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getViewport().setBackground(Color.WHITE);
+
+        panel.add(scroll, BorderLayout.CENTER);
+        return panel;
+    }
+
+    /* ==================== PESTAÑA: ERROR DE EJECUCION ==================== */
+
+    // Crea la pestaña que se muestra si la ejecucion termino por un error
+    // (bucle infinito, timeout, excepcion o cancelacion).
+    private JPanel crearPestanaErrorEjecucion() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(Paleta.FONDO_GENERAL);
+        panel.setBorder(new EmptyBorder(15, 15, 15, 15));
+
+        JLabel lblError = new JLabel("<html><body style='width: 800px'>"
+                + "<h2 style='color:#B00020'>La ejecucion termino por un error</h2>"
+                + "<p>Las estadisticas que se muestran en las otras pestañas"
+                + " corresponden solo a los procesos que SI terminaron."
+                + " Los demas se perdieron por el error.</p>"
+                + "<p>Detalle del error:</p>"
+                + "<pre style='background:#F8F9FA; padding:10px; border:1px solid #E0E0E0'>"
+                + escaparHtml(errorEjecucion)
+                + "</pre>"
+                + "<p>Revisa la consola para mas informacion. "
+                + "Si el problema persiste, revisa la configuracion del sistema "
+                + "o los archivos .asm cargados.</p>"
+                + "</body></html>");
+        lblError.setFont(Paleta.FUENTE_MONO);
+        lblError.setForeground(Paleta.TEXTO_NORMAL);
+
+        JScrollPane scroll = new JScrollPane(lblError);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getViewport().setBackground(Color.WHITE);
+
+        panel.add(scroll, BorderLayout.CENTER);
+        return panel;
+    }
+
+    // Escapa caracteres especiales de HTML para que un mensaje de error
+    // con <, >, & no rompa el JLabel.
+    private String escaparHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\n", "<br>");
     }
 
     /* ==================== PESTAÑA: RESUMEN ==================== */
@@ -165,26 +303,37 @@ public class VentanaEstadisticas extends JDialog {
         gbc.insets = new Insets(6, 15, 6, 15);
         gbc.weightx = 1;
 
-        // Todos los datos vienen de Estadisticas (SRP + DIP)
+        // ==== Fila 0: algoritmo + total de procesos ====
+        JLabel l0 = crearLabelResumen("Algoritmo:", algoritmoCPU);
         JLabel l1 = crearLabelResumen("Total de procesos:",
                 String.valueOf(estadisticas.getCantidadProcesos()));
+
+        gbc.gridx = 0; gbc.gridy = 0; panel.add(l0, gbc);
+        gbc.gridx = 1; panel.add(l1, gbc);
+
+        // ==== Fila 1: duraciones ====
         JLabel l2 = crearLabelResumen("Duracion total:",
                 estadisticas.getDuracionTotal() + " s");
         JLabel l3 = crearLabelResumen("Duracion promedio:",
                 estadisticas.getDuracionPromedio() + " s");
+
+        gbc.gridx = 0; gbc.gridy = 1; panel.add(l2, gbc);
+        gbc.gridx = 1; panel.add(l3, gbc);
+
+        // ==== Fila 2: proceso mas largo / corto ====
         JLabel l4 = crearLabelResumen("Proceso mas largo:",
                 estadisticas.getDuracionMasLarga() + " s");
         JLabel l5 = crearLabelResumen("Proceso mas corto:",
                 estadisticas.getDuracionMasCorta() + " s");
+
+        gbc.gridx = 0; gbc.gridy = 2; panel.add(l4, gbc);
+        gbc.gridx = 1; panel.add(l5, gbc);
+
+        // ==== Fila 3: promedio Tr/Ts ====
         JLabel l6 = crearLabelResumen("Promedio Tr/Ts:",
                 String.format("%.2f", estadisticas.getPromedioTrTs()));
 
-        gbc.gridx = 0; gbc.gridy = 0; panel.add(l1, gbc);
-        gbc.gridx = 1; panel.add(l2, gbc);
-        gbc.gridx = 0; gbc.gridy = 1; panel.add(l3, gbc);
-        gbc.gridx = 1; panel.add(l4, gbc);
-        gbc.gridx = 0; gbc.gridy = 2; panel.add(l5, gbc);
-        gbc.gridx = 1; panel.add(l6, gbc);
+        gbc.gridx = 0; gbc.gridy = 3; panel.add(l6, gbc);
 
         return panel;
     }

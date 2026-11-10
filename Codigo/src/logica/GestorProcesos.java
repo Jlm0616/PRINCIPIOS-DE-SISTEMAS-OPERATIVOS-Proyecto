@@ -123,6 +123,12 @@ public class GestorProcesos {
 
     private java.util.function.Consumer<String> salidaPantalla;
 
+    // === Error de la ultima ejecucion (si la hubo) ===
+    // Se llena cuando ejecutarAutomatico() o ejecutarUnPaso() detectan
+    // un problema: timeout por posible bucle infinito, InterruptedException,
+    // o una excepcion no controlada. Se muestra en VentanaEstadisticas.
+    private String errorEjecucion = null;
+
     /**
      * Constructor legacy (sin quantum). Usa QUANTUM_DEFAULT.
      */
@@ -231,6 +237,30 @@ public class GestorProcesos {
     /** Permite inyectar un randomizador con semilla (pruebas). */
     public void setRandomizador(RandomizadorTiempos randomizador) {
         if (randomizador != null) this.randomizador = randomizador;
+    }
+
+    /**
+     * @return el mensaje de error de la ultima ejecucion, o null si
+     *         no hubo error. Se muestra en la ventana de estadisticas.
+     */
+    public String getErrorEjecucion() {
+        return errorEjecucion;
+    }
+
+    /** Limpia el error de la ultima ejecucion (al reiniciar el sistema). */
+    public void limpiarErrorEjecucion() {
+        this.errorEjecucion = null;
+    }
+
+    /**
+     * Permite a la GUI marcar un error de ejecucion que no ocurrio dentro
+     * de GestorProcesos (por ejemplo, una cancelacion del SwingWorker o
+     * una excepcion en el hilo de fondo de la GUI).
+     */
+    public void setErrorEjecucionExterno(String mensaje) {
+        if (mensaje != null) {
+            this.errorEjecucion = mensaje;
+        }
     }
 
     /** Envia un mensaje a la pantalla de la GUI (si hay callback). */
@@ -833,22 +863,45 @@ public class GestorProcesos {
         }
     }
 
+    /**
+     * Ejecuta la simulacion completa paso a paso hasta que no queden
+     * procesos activos. Si detecta un posible bucle infinito, una
+     * excepcion o una cancelacion, guarda el motivo en errorEjecucion.
+     *
+     * @param onPaso callback opcional por cada paso
+     * @return la cantidad de pasos ejecutados
+     */
     public int ejecutarAutomatico(Runnable onPaso) {
         int pasos = 0;
         int maxPasos = 10000;
 
-        while (hayProcesosActivos() && pasos < maxPasos) {
-            ejecutarUnPaso();
-            pasos++;
+        try {
+            while (hayProcesosActivos() && pasos < maxPasos) {
+                ejecutarUnPaso();
+                pasos++;
 
-            if (onPaso != null) onPaso.run();
+                if (onPaso != null) onPaso.run();
 
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    errorEjecucion = "Ejecucion interrumpida por el usuario "
+                            + "despues de " + pasos + " pasos.";
+                    break;
+                }
             }
+            // Si se alcanzo el limite de pasos, quedo trabajo pendiente.
+            if (pasos >= maxPasos && hayProcesosActivos()) {
+                errorEjecucion = "Se alcanzo el limite de " + maxPasos
+                        + " pasos sin terminar. Posible bucle infinito o "
+                        + "configuracion que no progresa.";
+            }
+        } catch (RuntimeException ex) {
+            errorEjecucion = "Error durante la ejecucion en el paso " + (pasos + 1)
+                    + ": " + ex.getClass().getSimpleName()
+                    + ": " + ex.getMessage();
+            System.err.println("[EJECUCION] " + errorEjecucion);
         }
         return pasos;
     }

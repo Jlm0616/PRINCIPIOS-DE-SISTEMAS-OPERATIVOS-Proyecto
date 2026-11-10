@@ -314,15 +314,15 @@ public class VentanaConfiguracion extends JDialog {
     }
 
     /**
-     * @return b de Selfish RR: incremento de prioridad de los aceptados.
-     */
-    /**
      * @return estrategia de asignacion de memoria y sus parametros.
      */
     public ParametrosMemoria getParametrosMemoria() {
         return parametrosMemoria;
     }
 
+    /**
+     * @return b de Selfish RR: incremento de prioridad de los aceptados.
+     */
     public int getSrrB() {
         return srrB;
     }

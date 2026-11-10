@@ -1,12 +1,18 @@
 #Configuracion del Sistema - Proyecto 2 SO
-#Sun Nov 08 06:25:04 CST 2026
+#Mon Nov 09 21:39:12 CST 2026
 algoritmo_cpu=MLFQ
 cpus=1
 disco=512
+estrategia_memoria=First Fit
 kernel=909
-max_archivos=5
+marcos_por_proceso=2
+max_archivos=15
 memoria=3030
 memoria_virtual=64
+pagina_tamano=4
+particion_tamano=16
+particiones=8,16,32,64
 quantum=1
+reemplazo=FIFO
 srr_a=2
 srr_b=1

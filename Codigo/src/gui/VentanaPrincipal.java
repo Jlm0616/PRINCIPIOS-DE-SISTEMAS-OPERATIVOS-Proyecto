@@ -564,13 +564,31 @@ public class VentanaPrincipal extends JFrame {
                     panelPantalla.agregarMensaje(">> Ejecucion automatica completada ("
                             + pasos + " pasos)");
 
+                    // Si la ejecucion termino por un error (timeout, excepcion,
+                    // cancelacion), avisar al usuario.
+                    String error = gestor.getErrorEjecucion();
+                    if (error != null) {
+                        panelPantalla.agregarMensaje(">> ERROR DE EJECUCION: " + error);
+                        JOptionPane.showMessageDialog(VentanaPrincipal.this,
+                                "La ejecucion termino por un error:\n\n" + error
+                                + "\n\nLas estadisticas parciales siguen disponibles en el boton"
+                                + " 'Estadisticas'.",
+                                "Error de ejecucion", JOptionPane.ERROR_MESSAGE);
+                    }
+
                     imprimirEstadisticasEnPantalla();
                 } catch (java.util.concurrent.CancellationException ex) {
                     panelPantalla.agregarMensaje(">> Ejecucion automatica cancelada.");
+                    // La cancelacion del SwingWorker NO llena errorEjecucion
+                    // en el gestor: lo marcamos aqui para que la ventana de
+                    // estadisticas lo sepa.
+                    gestor.setErrorEjecucionExterno("Ejecucion cancelada por el usuario.");
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(VentanaPrincipal.this,
                             "Error durante la ejecucion:\n" + ex.getMessage(),
                             "Error", JOptionPane.ERROR_MESSAGE);
+                    gestor.setErrorEjecucionExterno("Error en SwingWorker: "
+                            + ex.getClass().getSimpleName() + ": " + ex.getMessage());
                 } finally {
                     habilitarBotones();
                     refrescarTodo();
@@ -709,6 +727,9 @@ public class VentanaPrincipal extends JFrame {
     // Reinicia el sistema con la configuración actual.
     private void limpiar() {
         inicializarSistema();
+        // Al reiniciar el sistema, el error de la ejecucion anterior ya no
+        // aplica: se limpia para que la proxima ejecucion empiece en blanco.
+        gestor.limpiarErrorEjecucion();
         configurarCallbacks();
         panelPantalla.limpiar();
         panelContexto.limpiar();
@@ -833,7 +854,9 @@ public class VentanaPrincipal extends JFrame {
             return;
         }
 
-        VentanaEstadisticas ventana = new VentanaEstadisticas(this, terminados);
+        VentanaEstadisticas ventana = new VentanaEstadisticas(this, terminados,
+                algoritmoCPUActual + parametrosAlgoritmo(),
+                gestor.getErrorEjecucion());
         ventana.setVisible(true);
     }
 
