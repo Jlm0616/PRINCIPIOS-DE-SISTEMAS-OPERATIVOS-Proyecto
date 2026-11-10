@@ -10,6 +10,7 @@ import logica.memoria.ParametrosMemoria;
 import logica.ResultadoCarga;
 import logica.BCPTerminado;
 import logica.estadisticas.Estadisticas;
+import logica.estadisticas.HistorialEjecuciones;
 import logica.estadisticas.LineaProceso;
 import logica.cpu.Nucleo;
 import modelo.BCP;
@@ -73,6 +74,9 @@ public class VentanaPrincipal extends JFrame {
     private EstrategiaMemoria particionador;   // estrategia de asignacion de memoria
     private GestorProcesos gestor;
     private Disco disco;
+
+    // Historial de resumenes de ejecuciones anteriores (acumulados).
+    private final HistorialEjecuciones historial = new HistorialEjecuciones();
 
     private PanelProcesos panelProcesos;
     private PanelMemoria panelMemoria;
@@ -531,6 +535,7 @@ public class VentanaPrincipal extends JFrame {
 
         if (!gestor.hayProcesosActivos()) {
             imprimirEstadisticasEnPantalla();
+            guardarResumenEjecucion();
         }
     }
 
@@ -577,18 +582,21 @@ public class VentanaPrincipal extends JFrame {
                     }
 
                     imprimirEstadisticasEnPantalla();
+                    guardarResumenEjecucion();
                 } catch (java.util.concurrent.CancellationException ex) {
                     panelPantalla.agregarMensaje(">> Ejecucion automatica cancelada.");
                     // La cancelacion del SwingWorker NO llena errorEjecucion
                     // en el gestor: lo marcamos aqui para que la ventana de
                     // estadisticas lo sepa.
                     gestor.setErrorEjecucionExterno("Ejecucion cancelada por el usuario.");
+                    guardarResumenEjecucion();
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(VentanaPrincipal.this,
                             "Error durante la ejecucion:\n" + ex.getMessage(),
                             "Error", JOptionPane.ERROR_MESSAGE);
                     gestor.setErrorEjecucionExterno("Error en SwingWorker: "
                             + ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                    guardarResumenEjecucion();
                 } finally {
                     habilitarBotones();
                     refrescarTodo();
@@ -730,6 +738,8 @@ public class VentanaPrincipal extends JFrame {
         // Al reiniciar el sistema, el error de la ejecucion anterior ya no
         // aplica: se limpia para que la proxima ejecucion empiece en blanco.
         gestor.limpiarErrorEjecucion();
+        // Tambien se limpia el historial acumulado de ejecuciones.
+        historial.limpiar();
         configurarCallbacks();
         panelPantalla.limpiar();
         panelContexto.limpiar();
@@ -840,6 +850,29 @@ public class VentanaPrincipal extends JFrame {
     }
 
     /**
+     * Guarda un resumen de la ejecucion actual en el historial acumulado.
+     * Se llama al terminar una ejecucion (automatica o manual).
+     * Si la ejecucion termino con error, el resumen lo registra.
+     */
+    private void guardarResumenEjecucion() {
+        List<BCPTerminado> terminados = gestor.getProcesosTerminados();
+        if (terminados.isEmpty() && gestor.getErrorEjecucion() == null) {
+            return;   // nada que guardar
+        }
+
+        Estadisticas stats = new Estadisticas(terminados,
+                gestor.getRegistroGantt(),
+                gestor.getGestorCPUs().getCantidadNucleos());
+        String alg = algoritmoCPUActual + parametrosAlgoritmo();
+        String err = gestor.getErrorEjecucion();
+
+        historial.agregar(stats, alg, err);
+
+        panelPantalla.agregarMensaje(">> Resumen guardado en historial (ejecucion #"
+                + historial.getCantidad() + ").");
+    }
+
+    /**
      * Formatea un instante simulado como "t=X", o "  -  " si no fue marcado.
      *
      * @param t instante del reloj simulado, o {@link BCPTerminado#TIEMPO_NO_MARCADO}
@@ -863,7 +896,8 @@ public class VentanaPrincipal extends JFrame {
                 algoritmoCPUActual + parametrosAlgoritmo(),
                 gestor.getErrorEjecucion(),
                 gestor.getRegistroGantt(),
-                cantidadCPUsActual);
+                cantidadCPUsActual,
+                historial);
         ventana.setVisible(true);
     }
 

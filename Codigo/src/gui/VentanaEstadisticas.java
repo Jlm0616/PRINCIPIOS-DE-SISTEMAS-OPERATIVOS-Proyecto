@@ -2,8 +2,10 @@ package gui;
 
 import logica.BCPTerminado;
 import logica.estadisticas.Estadisticas;
+import logica.estadisticas.HistorialEjecuciones;
 import logica.estadisticas.LineaProceso;
 import logica.estadisticas.RegistroGantt;
+import logica.estadisticas.ResumenEjecucion;
 
 import javax.swing.JDialog;
 import javax.swing.JPanel;
@@ -39,6 +41,7 @@ import java.util.List;
  *   - Resumen:  totales, promedios, Tr/Ts, nombre del algoritmo, tiempo ocioso.
  *   - Procesos: tabla con todos los procesos + detalle del seleccionado.
  *   - Gantt:    diagrama de ejecucion por CPU.
+ *   - Acumulados: historial de resumenes de ejecuciones anteriores.
  *
  * Si el calculo de {@link Estadisticas} falla (por ejemplo, porque la
  * ejecucion termino a medias y hay datos corruptos), la ventana NO
@@ -72,6 +75,9 @@ public class VentanaEstadisticas extends JDialog {
 
     /** Si la ejecucion termino por un error, aqui queda el mensaje. */
     private final String errorEjecucion;
+
+    /** Historial de resumenes acumulados (puede ser null). */
+    private final HistorialEjecuciones historial;
 
     // Panel de detalle
     private JLabel lblId;
@@ -115,26 +121,40 @@ public class VentanaEstadisticas extends JDialog {
     }
 
     /**
-     * Crea la ventana modal con la lista de procesos terminados, el
-     * nombre del algoritmo activo, el error de ejecucion (si hubo) y
-     * los datos del Gantt en vivo para calcular el tiempo ocioso.
-     *
-     * @param propietario    frame padre
-     * @param procesos       lista de snapshots de procesos terminados
-     * @param algoritmoCPU   nombre del algoritmo (p. ej. "MLFQ"); puede ser null
-     * @param errorEjecucion mensaje si la ejecucion termino por un error; puede ser null
-     * @param registro       registro del Gantt en vivo; puede ser null
-     * @param cantidadNucleos cantidad de nucleos configurados (>= 0)
+     * Constructor sin historial. Se mantiene por compatibilidad.
      */
     public VentanaEstadisticas(Frame propietario, List<BCPTerminado> procesos,
                                String algoritmoCPU, String errorEjecucion,
                                RegistroGantt registro, int cantidadNucleos) {
+        this(propietario, procesos, algoritmoCPU, errorEjecucion, registro,
+                cantidadNucleos, null);
+    }
+
+    /**
+     * Crea la ventana modal con la lista de procesos terminados, el
+     * nombre del algoritmo activo, el error de ejecucion (si hubo),
+     * los datos del Gantt en vivo para calcular el tiempo ocioso y el
+     * historial acumulado de ejecuciones anteriores.
+     *
+     * @param propietario     frame padre
+     * @param procesos        lista de snapshots de procesos terminados
+     * @param algoritmoCPU    nombre del algoritmo (p. ej. "MLFQ"); puede ser null
+     * @param errorEjecucion  mensaje si la ejecucion termino por un error; puede ser null
+     * @param registro        registro del Gantt en vivo; puede ser null
+     * @param cantidadNucleos cantidad de nucleos configurados (>= 0)
+     * @param historial       historial de resumenes acumulados; puede ser null
+     */
+    public VentanaEstadisticas(Frame propietario, List<BCPTerminado> procesos,
+                               String algoritmoCPU, String errorEjecucion,
+                               RegistroGantt registro, int cantidadNucleos,
+                               HistorialEjecuciones historial) {
         super(propietario, "Estadisticas de Procesos", true);
 
         this.algoritmoCPU = (algoritmoCPU != null && !algoritmoCPU.isEmpty())
                 ? algoritmoCPU : "(desconocido)";
         this.errorEjecucion = (errorEjecucion != null && !errorEjecucion.isEmpty())
                 ? errorEjecucion : null;
+        this.historial = historial;
 
         // Delegacion del calculo (DIP). Si falla, NO se rompe la ventana:
         // se guarda el mensaje y se muestra una pestaña de Error.
@@ -184,6 +204,11 @@ public class VentanaEstadisticas extends JDialog {
             tabs.addTab("Resumen", crearPestanaResumen());
             tabs.addTab("Procesos", crearPestanaProcesos());
             tabs.addTab("Diagrama Gantt", crearPestanaGantt());
+
+            // ==== Pestaña ACUMULADOS (solo si hay historial con datos) ====
+            if (historial != null && !historial.estaVacio()) {
+                tabs.addTab("Acumulados", crearPestanaAcumulados());
+            }
         }
 
         mainPanel.add(tabs, BorderLayout.CENTER);
@@ -200,6 +225,165 @@ public class VentanaEstadisticas extends JDialog {
         panelBotones.setOpaque(false);
         panelBotones.add(btnCerrar);
         mainPanel.add(panelBotones, BorderLayout.SOUTH);
+    }
+
+    /* ==================== PESTAÑA: ACUMULADOS ==================== */
+
+    /**
+     * Crea la pestaña con la tabla de resumenes acumulados de ejecuciones
+     * anteriores. Cada fila corresponde a una ejecucion completa, con sus
+     * totales y promedios. Al pie muestra los promedios globales.
+     */
+    private JPanel crearPestanaAcumulados() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(Paleta.FONDO_GENERAL);
+        panel.setBorder(new EmptyBorder(15, 15, 15, 15));
+
+        // Titulo
+        JLabel lblTitulo = new JLabel("Acumulado de ejecuciones anteriores");
+        lblTitulo.setFont(Paleta.FUENTE_TITULO_PANEL);
+        lblTitulo.setForeground(Paleta.VERDE_OSCURO);
+        panel.add(lblTitulo, BorderLayout.NORTH);
+
+        // Modelo de la tabla
+        DefaultTableModel modeloAcum = new DefaultTableModel(
+                new Object[]{"#", "Algoritmo", "Procesos", "Dur. total",
+                             "Dur. prom.", "Mas largo", "Mas corto",
+                             "T. ocioso", "Prom. Tr/Ts", "Estado"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+
+        List<ResumenEjecucion> resumenes = historial.getResumenes();
+        for (ResumenEjecucion r : resumenes) {
+            String estado = r.terminoConError() ? "ERROR" : "OK";
+            modeloAcum.addRow(new Object[]{
+                "#" + r.getNumeroEjecucion(),
+                r.getAlgoritmo(),
+                String.valueOf(r.getCantidadProcesos()),
+                r.getDuracionTotal() + " s",
+                r.getDuracionPromedio() + " s",
+                r.getDuracionMasLarga() + " s",
+                r.getDuracionMasCorta() + " s",
+                r.getTiempoOcioso() + " s",
+                String.format("%.2f", r.getPromedioTrTs()),
+                estado
+            });
+        }
+
+        JTable tablaAcum = new JTable(modeloAcum);
+        tablaAcum.setFont(Paleta.FUENTE_MONO);
+        tablaAcum.setRowHeight(28);
+        tablaAcum.setGridColor(new Color(0xE0, 0xE0, 0xE0));
+        tablaAcum.setShowGrid(true);
+        tablaAcum.setFillsViewportHeight(true);
+        tablaAcum.getTableHeader().setFont(Paleta.FUENTE_LABEL_BOLD);
+        tablaAcum.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        tablaAcum.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value,
+                    boolean isSelected, boolean hasFocus, int row, int column) {
+                Component c = super.getTableCellRendererComponent(
+                        table, value, isSelected, hasFocus, row, column);
+                if (!isSelected) {
+                    c.setBackground(row % 2 == 0 ? Color.WHITE : Paleta.FONDO_FILA_ALT);
+                    c.setForeground(Paleta.TEXTO_NORMAL);
+                    // Pintar en rojo la columna "Estado" si es ERROR.
+                    if (column == 9 && "ERROR".equals(value)) {
+                        c.setForeground(new Color(0xB0, 0x00, 0x20));
+                    }
+                }
+                setHorizontalAlignment(SwingConstants.CENTER);
+                return c;
+            }
+        });
+
+        JScrollPane scroll = new JScrollPane(tablaAcum);
+        panel.add(scroll, BorderLayout.CENTER);
+
+        // Panel de resumen global al pie
+        panel.add(crearPanelResumenGlobal(resumenes), BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    /**
+     * Crea el panel con los promedios globales del historial.
+     */
+    private JPanel crearPanelResumenGlobal(List<ResumenEjecucion> resumenes) {
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBackground(Color.WHITE);
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder(
+                        BorderFactory.createLineBorder(Paleta.VERDE_OSCURO, 2),
+                        "Promedios globales de todas las ejecuciones",
+                        TitledBorder.DEFAULT_JUSTIFICATION,
+                        TitledBorder.DEFAULT_POSITION,
+                        Paleta.FUENTE_TITULO_PANEL,
+                        Paleta.VERDE_OSCURO
+                ),
+                new EmptyBorder(10, 15, 10, 15)
+        ));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(4, 15, 4, 15);
+        gbc.weightx = 1;
+
+        int n = resumenes.size();
+        int sumaProcesos = 0;
+        int sumaDurTotal = 0;
+        int sumaDurProm = 0;
+        int sumaOcioso = 0;
+        double sumaTrTs = 0.0;
+        int conError = 0;
+
+        for (ResumenEjecucion r : resumenes) {
+            sumaProcesos += r.getCantidadProcesos();
+            sumaDurTotal += r.getDuracionTotal();
+            sumaDurProm += r.getDuracionPromedio();
+            sumaOcioso += r.getTiempoOcioso();
+            sumaTrTs += r.getPromedioTrTs();
+            if (r.terminoConError()) conError++;
+        }
+
+        int promProcesos = (n > 0) ? sumaProcesos / n : 0;
+        int promDurTotal = (n > 0) ? sumaDurTotal / n : 0;
+        int promDurProm = (n > 0) ? sumaDurProm / n : 0;
+        int promOcioso = (n > 0) ? sumaOcioso / n : 0;
+        double promTrTs = (n > 0) ? sumaTrTs / n : 0.0;
+
+        JLabel l0 = crearLabelResumen("Ejecuciones totales:", String.valueOf(n));
+        JLabel l1 = crearLabelResumen("Con error:", String.valueOf(conError));
+
+        gbc.gridx = 0; gbc.gridy = 0; panel.add(l0, gbc);
+        gbc.gridx = 1; panel.add(l1, gbc);
+
+        JLabel l2 = crearLabelResumen("Procesos (prom. por ejec.):",
+                String.valueOf(promProcesos));
+        JLabel l3 = crearLabelResumen("Dur. total (prom.):",
+                promDurTotal + " s");
+
+        gbc.gridx = 0; gbc.gridy = 1; panel.add(l2, gbc);
+        gbc.gridx = 1; panel.add(l3, gbc);
+
+        JLabel l4 = crearLabelResumen("Dur. prom. (prom.):",
+                promDurProm + " s");
+        JLabel l5 = crearLabelResumen("Tiempo ocioso (prom.):",
+                promOcioso + " s");
+
+        gbc.gridx = 0; gbc.gridy = 2; panel.add(l4, gbc);
+        gbc.gridx = 1; panel.add(l5, gbc);
+
+        JLabel l6 = crearLabelResumen("Promedio Tr/Ts global:",
+                String.format("%.2f", promTrTs));
+
+        gbc.gridx = 0; gbc.gridy = 3; panel.add(l6, gbc);
+
+        return panel;
     }
 
     /* ==================== PESTAÑA: ERROR DE CALCULO ==================== */

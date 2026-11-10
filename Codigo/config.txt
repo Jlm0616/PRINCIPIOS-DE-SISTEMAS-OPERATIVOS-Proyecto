@@ -1,6 +1,6 @@
 #Configuracion del Sistema - Proyecto 2 SO
-#Mon Nov 09 21:39:12 CST 2026
-algoritmo_cpu=MLFQ
+#Tue Nov 10 11:33:41 CST 2026
+algoritmo_cpu=FCFS
 cpus=1
 disco=512
 estrategia_memoria=First Fit
