@@ -78,6 +78,39 @@ public class RegistroGantt {
         return primerInstante == Integer.MAX_VALUE ? -1 : primerInstante;
     }
 
+    /**
+     * Calcula el tiempo ocioso (CPU idle) acumulado sobre todos los
+     * nucleos y todos los instantes [primerInstante..ultimoInstante].
+     *
+     * Un nucleo esta idle en el instante t si NINGUN proceso de ese
+     * nucleo tiene t en su conjunto de ejecucion ni en su conjunto de
+     * espera. Los nucleos que nunca aparecen en el registro tambien
+     * cuentan como idle en todos los instantes: existen pero no se usaron.
+     *
+     * @param cantidadNucleos cantidad de nucleos configurados
+     * @return suma, sobre nucleos e instantes, de "cuantos nucleos
+     *         estuvieron idle en cada instante". 0 si no hay datos.
+     */
+    public synchronized int calcularTiempoOcioso(int cantidadNucleos) {
+        if (cantidadNucleos <= 0) return 0;
+        if (primerInstante == Integer.MAX_VALUE) return 0;
+
+        int total = 0;
+        for (int t = primerInstante; t <= ultimoInstante; t++) {
+            int nucleosOcupados = 0;
+            for (Map.Entry<Integer, Map<Integer, Fila>> e : filasPorNucleo.entrySet()) {
+                for (Fila f : e.getValue().values()) {
+                    if (f.ejecucion.contains(t) || f.espera.contains(t)) {
+                        nucleosOcupados++;
+                        break;
+                    }
+                }
+            }
+            total += (cantidadNucleos - nucleosOcupados);
+        }
+        return total;
+    }
+
     private Fila fila(int idNucleo, int idProceso) {
         return filasPorNucleo
                 .computeIfAbsent(idNucleo, k -> new LinkedHashMap<>())

@@ -3,6 +3,7 @@ package gui;
 import logica.BCPTerminado;
 import logica.estadisticas.Estadisticas;
 import logica.estadisticas.LineaProceso;
+import logica.estadisticas.RegistroGantt;
 
 import javax.swing.JDialog;
 import javax.swing.JPanel;
@@ -35,7 +36,7 @@ import java.util.List;
  *
  * Organizada en pestañas:
  *   - Error de ejecucion (si la ejecucion termino mal, ANTES de las demas).
- *   - Resumen:  totales, promedios, Tr/Ts y nombre del algoritmo.
+ *   - Resumen:  totales, promedios, Tr/Ts, nombre del algoritmo, tiempo ocioso.
  *   - Procesos: tabla con todos los procesos + detalle del seleccionado.
  *   - Gantt:    diagrama de ejecucion por CPU.
  *
@@ -104,17 +105,30 @@ public class VentanaEstadisticas extends JDialog {
     }
 
     /**
+     * Constructor con nombre de algoritmo y error de ejecucion, sin
+     * datos de Gantt: el tiempo ocioso quedara en 0.
+     * Se mantiene por compatibilidad.
+     */
+    public VentanaEstadisticas(Frame propietario, List<BCPTerminado> procesos,
+                               String algoritmoCPU, String errorEjecucion) {
+        this(propietario, procesos, algoritmoCPU, errorEjecucion, null, 0);
+    }
+
+    /**
      * Crea la ventana modal con la lista de procesos terminados, el
-     * nombre del algoritmo activo y, si la ejecucion termino mal, el
-     * mensaje de error.
+     * nombre del algoritmo activo, el error de ejecucion (si hubo) y
+     * los datos del Gantt en vivo para calcular el tiempo ocioso.
      *
      * @param propietario    frame padre
      * @param procesos       lista de snapshots de procesos terminados
      * @param algoritmoCPU   nombre del algoritmo (p. ej. "MLFQ"); puede ser null
      * @param errorEjecucion mensaje si la ejecucion termino por un error; puede ser null
+     * @param registro       registro del Gantt en vivo; puede ser null
+     * @param cantidadNucleos cantidad de nucleos configurados (>= 0)
      */
     public VentanaEstadisticas(Frame propietario, List<BCPTerminado> procesos,
-                               String algoritmoCPU, String errorEjecucion) {
+                               String algoritmoCPU, String errorEjecucion,
+                               RegistroGantt registro, int cantidadNucleos) {
         super(propietario, "Estadisticas de Procesos", true);
 
         this.algoritmoCPU = (algoritmoCPU != null && !algoritmoCPU.isEmpty())
@@ -125,7 +139,7 @@ public class VentanaEstadisticas extends JDialog {
         // Delegacion del calculo (DIP). Si falla, NO se rompe la ventana:
         // se guarda el mensaje y se muestra una pestaña de Error.
         try {
-            this.estadisticas = new Estadisticas(procesos);
+            this.estadisticas = new Estadisticas(procesos, registro, cantidadNucleos);
         } catch (RuntimeException ex) {
             this.estadisticas = null;
             this.errorCalculo = "La ejecucion termino con un error al calcular"
@@ -329,11 +343,14 @@ public class VentanaEstadisticas extends JDialog {
         gbc.gridx = 0; gbc.gridy = 2; panel.add(l4, gbc);
         gbc.gridx = 1; panel.add(l5, gbc);
 
-        // ==== Fila 3: promedio Tr/Ts ====
-        JLabel l6 = crearLabelResumen("Promedio Tr/Ts:",
+        // ==== Fila 3: tiempo ocioso + promedio Tr/Ts ====
+        JLabel l6 = crearLabelResumen("Tiempo ocioso:",
+                estadisticas.getTiempoOcioso() + " s");
+        JLabel l7 = crearLabelResumen("Promedio Tr/Ts:",
                 String.format("%.2f", estadisticas.getPromedioTrTs()));
 
         gbc.gridx = 0; gbc.gridy = 3; panel.add(l6, gbc);
+        gbc.gridx = 1; panel.add(l7, gbc);
 
         return panel;
     }

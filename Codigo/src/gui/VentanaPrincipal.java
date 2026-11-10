@@ -802,8 +802,12 @@ public class VentanaPrincipal extends JFrame {
         List<BCPTerminado> terminados = gestor.getProcesosTerminados();
         if (terminados.isEmpty()) return;
 
-        // Delegacion del calculo (DIP: dependemos de la abstraccion Estadisticas)
-        Estadisticas stats = new Estadisticas(terminados);
+        // Delegacion del calculo (DIP: dependemos de la abstraccion Estadisticas).
+        // Ahora tambien se pasa el RegistroGantt y la cantidad de nucleos
+        // para que se calcule el tiempo ocioso.
+        Estadisticas stats = new Estadisticas(terminados,
+                gestor.getRegistroGantt(),
+                gestor.getGestorCPUs().getCantidadNucleos());
 
         panelPantalla.agregarMensaje("");
         panelPantalla.agregarMensaje(">> ================== ESTADISTICAS ==================");
@@ -829,6 +833,7 @@ public class VentanaPrincipal extends JFrame {
         panelPantalla.agregarMensaje(">> Duracion promedio:  " + stats.getDuracionPromedio() + " s");
         panelPantalla.agregarMensaje(">> Proceso mas largo:  " + stats.getDuracionMasLarga() + " s");
         panelPantalla.agregarMensaje(">> Proceso mas corto:  " + stats.getDuracionMasCorta() + " s");
+        panelPantalla.agregarMensaje(">> Tiempo ocioso:      " + stats.getTiempoOcioso() + " s");
         panelPantalla.agregarMensaje(String.format(">> Promedio Tr/Ts:     %.2f", stats.getPromedioTrTs()));
         panelPantalla.agregarMensaje(">> ==================================================");
         panelPantalla.agregarMensaje("");
@@ -856,7 +861,9 @@ public class VentanaPrincipal extends JFrame {
 
         VentanaEstadisticas ventana = new VentanaEstadisticas(this, terminados,
                 algoritmoCPUActual + parametrosAlgoritmo(),
-                gestor.getErrorEjecucion());
+                gestor.getErrorEjecucion(),
+                gestor.getRegistroGantt(),
+                cantidadCPUsActual);
         ventana.setVisible(true);
     }
 

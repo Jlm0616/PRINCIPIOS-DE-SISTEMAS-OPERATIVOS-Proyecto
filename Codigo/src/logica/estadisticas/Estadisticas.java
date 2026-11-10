@@ -19,6 +19,7 @@ import java.util.TreeSet;
  *   - Promedio de Tr/Ts.
  *   - Lista de LineaProceso (DTO por proceso).
  *   - Rango de instantes y CPUs presentes (para el diagrama de Gantt).
+ *   - Tiempo ocioso (CPU idle) acumulado a partir del RegistroGantt.
  *
  * PROYECTO 2 - SOLID:
  *  - SRP: solo CALCULA. No formatea, no imprime, no conoce la GUI.
@@ -49,12 +50,34 @@ public class Estadisticas {
     private final List<Integer> cpusPresentes;
 
     /**
+     * Tiempo ocioso (CPU idle) acumulado sobre todos los nucleos y
+     * todos los instantes registrados. 0 si no se paso el registro.
+     */
+    private final int tiempoOcioso;
+
+    /**
      * Construye las estadisticas a partir de la lista de procesos
-     * terminados.
+     * terminados. El tiempo ocioso queda en 0: usar el constructor
+     * con RegistroGantt para calcularlo.
      *
      * @param terminados lista de snapshots BCPTerminado
      */
     public Estadisticas(List<BCPTerminado> terminados) {
+        this(terminados, null, 0);
+    }
+
+    /**
+     * Construye las estadisticas a partir de la lista de procesos
+     * terminados, el registro del Gantt en vivo y la cantidad de
+     * nucleos configurados. Calcula el tiempo ocioso.
+     *
+     * @param terminados       lista de snapshots BCPTerminado
+     * @param registro         registro del Gantt en vivo (puede ser null)
+     * @param cantidadNucleos  cantidad de nucleos configurados (>= 0)
+     */
+    public Estadisticas(List<BCPTerminado> terminados,
+                        RegistroGantt registro,
+                        int cantidadNucleos) {
         if (terminados == null) {
             terminados = Collections.emptyList();
         }
@@ -111,6 +134,11 @@ public class Estadisticas {
         this.instanteMin = (min == Integer.MAX_VALUE) ? 0 : min;
         this.instanteMax = (max == Integer.MIN_VALUE) ? 0 : max;
         this.cpusPresentes = new ArrayList<>(cpus);
+
+        // 4. Calcular tiempo ocioso (si se paso el registro)
+        this.tiempoOcioso = (registro != null && cantidadNucleos > 0)
+                ? registro.calcularTiempoOcioso(cantidadNucleos)
+                : 0;
     }
 
     /* ==================== GETTERS ==================== */
@@ -171,6 +199,14 @@ public class Estadisticas {
         return lineas.isEmpty();
     }
 
+    /**
+     * @return tiempo ocioso acumulado (CPU idle × segundos). 0 si no
+     *         se paso el registro o no hubo datos.
+     */
+    public int getTiempoOcioso() {
+        return tiempoOcioso;
+    }
+
     /* ==================== GETTERS GANTT ==================== */
 
     /**
@@ -228,6 +264,7 @@ public class Estadisticas {
                 + ", duracionTotal=" + duracionTotal
                 + ", duracionPromedio=" + duracionPromedio
                 + ", promedioTrTs=" + String.format("%.2f", promedioTrTs)
+                + ", tiempoOcioso=" + tiempoOcioso
                 + ", instantes=[" + instanteMin + ".." + instanteMax + "]"
                 + ", cpus=" + cpusPresentes + "}";
     }
