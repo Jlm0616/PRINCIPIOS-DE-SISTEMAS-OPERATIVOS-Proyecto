@@ -80,13 +80,11 @@ public class RegistroGantt {
 
     /**
      * Calcula el tiempo ocioso (CPU idle) acumulado sobre todos los
-     * nucleos y todos los instantes [0..ultimoInstante].
+     * nucleos y todos los intervalos [1..ultimoInstante].
      *
-     * Cuenta desde t=0 (el instante en que arranca la simulacion, cuando
-     * el usuario presiona "Ejecutar"), no desde el primer instante con
-     * actividad, para incluir tambien el idle ANTES de que llegue el
-     * primer proceso. Eso es lo que la rubrica llama "tiempo ocioso
-     * durante la ejecucion".
+     * No se cuenta t=0 porque es solo el punto de partida (el usuario
+     * presiona "Ejecutar"); el primer intervalo real es t=0 -> t=1, que
+     * en la convencion de Stallings se marca como t=1.
      *
      * Un nucleo esta idle en el instante t si NINGUN proceso de ese
      * nucleo tiene t en su conjunto de ejecucion ni en su conjunto de
@@ -104,7 +102,7 @@ public class RegistroGantt {
         int total = 0;
         // Empezamos en t=0 (inicio de la simulacion), no en primerInstante,
         // para contar tambien el idle antes de que llegue el primer proceso.
-        for (int t = 0; t <= ultimoInstante; t++) {
+        for (int t = 1; t <= ultimoInstante; t++) {
             int nucleosOcupados = 0;
             for (Map.Entry<Integer, Map<Integer, Fila>> e : filasPorNucleo.entrySet()) {
                 for (Fila f : e.getValue().values()) {
