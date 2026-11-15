@@ -21,6 +21,11 @@ public final class ResumenEjecucion {
     private final int duracionMasCorta;
     private final int tiempoOcioso;
     private final double promedioTrTs;
+    private final int tiempoInicio;
+    private final int tiempoFin;
+    private final double promedioTurnaround;
+    private final int cantidadCPUs;
+    private final String estrategiaMemoria;
     private final boolean terminoConError;
     private final String errorEjecucion;
 
@@ -33,6 +38,11 @@ public final class ResumenEjecucion {
                             int duracionMasCorta,
                             int tiempoOcioso,
                             double promedioTrTs,
+                            int tiempoInicio,
+                            int tiempoFin,
+                            double promedioTurnaround,
+                            int cantidadCPUs,
+                            String estrategiaMemoria,
                             boolean terminoConError,
                             String errorEjecucion) {
         this.numeroEjecucion = numeroEjecucion;
@@ -44,6 +54,11 @@ public final class ResumenEjecucion {
         this.duracionMasCorta = duracionMasCorta;
         this.tiempoOcioso = tiempoOcioso;
         this.promedioTrTs = promedioTrTs;
+        this.tiempoInicio = tiempoInicio;
+        this.tiempoFin = tiempoFin;
+        this.promedioTurnaround = promedioTurnaround;
+        this.cantidadCPUs = cantidadCPUs;
+        this.estrategiaMemoria = (estrategiaMemoria != null) ? estrategiaMemoria : "-";
         this.terminoConError = terminoConError;
         this.errorEjecucion = errorEjecucion;
     }
@@ -55,16 +70,18 @@ public final class ResumenEjecucion {
      * @param numero       numero de ejecucion (1, 2, 3, ...)
      * @param algoritmo    nombre del algoritmo activo
      * @param stats        estadisticas calculadas
+     * @param memoria      nombre de la estrategia de memoria usada
      * @param error        mensaje si la ejecucion termino con error, o null
      * @return el resumen listo para guardar en el historial
      */
     public static ResumenEjecucion desde(int numero,
                                          String algoritmo,
                                          Estadisticas stats,
+                                         String memoria,
                                          String error) {
         if (stats == null) {
             return new ResumenEjecucion(numero, algoritmo, 0, 0, 0, 0, 0, 0, 0.0,
-                    error != null, error);
+                    0, 0, 0.0, 0, memoria, error != null, error);
         }
         return new ResumenEjecucion(
                 numero,
@@ -76,6 +93,11 @@ public final class ResumenEjecucion {
                 stats.getDuracionMasCorta(),
                 stats.getTiempoOcioso(),
                 stats.getPromedioTrTs(),
+                stats.getTiempoInicio(),
+                stats.getTiempoFin(),
+                stats.getPromedioTurnaround(),
+                stats.getCantidadNucleos(),
+                memoria,
                 error != null,
                 error);
     }
@@ -89,6 +111,11 @@ public final class ResumenEjecucion {
     public int getDuracionMasCorta()  { return duracionMasCorta; }
     public int getTiempoOcioso()      { return tiempoOcioso; }
     public double getPromedioTrTs()   { return promedioTrTs; }
+    public int getTiempoInicio()      { return tiempoInicio; }
+    public int getTiempoFin()         { return tiempoFin; }
+    public double getPromedioTurnaround() { return promedioTurnaround; }
+    public int getCantidadCPUs()      { return cantidadCPUs; }
+    public String getEstrategiaMemoria() { return estrategiaMemoria; }
     public boolean terminoConError()  { return terminoConError; }
     public String getErrorEjecucion() { return errorEjecucion; }
 }

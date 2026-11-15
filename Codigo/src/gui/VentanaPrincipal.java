@@ -65,6 +65,8 @@ public class VentanaPrincipal extends JFrame {
     private int quantumRRActual;
     private int srrAActual;
     private int srrBActual;
+    private String mlfqQuantumsActual = ConfiguracionExterna.MLFQ_QUANTUMS_DEFAULT;
+    private long semillaLotteryActual = ConfiguracionExterna.LOTTERY_SEMILLA_DEFAULT;
     private ParametrosMemoria parametrosMemoriaActual = ParametrosMemoria.porDefecto();
 
     private Memoria memoria;
@@ -164,6 +166,8 @@ public class VentanaPrincipal extends JFrame {
         this.quantumRRActual = config.getQuantum();
         this.srrAActual = config.getSrrA();
         this.srrBActual = config.getSrrB();
+        this.mlfqQuantumsActual = config.getMlfqQuantums();
+        this.semillaLotteryActual = config.getLotterySemilla();
         this.parametrosMemoriaActual = config.getParametrosMemoria();
     }
 
@@ -228,6 +232,10 @@ public class VentanaPrincipal extends JFrame {
                                         listaProcesos, listaDeTrabajos,
                                         particionador, disco, quantumRRActual,
                                         srrAActual, srrBActual);
+            // Parametros de MLFQ (quantum de cada cola) y Lottery (semilla).
+            gestor.configurarParametrosCPU(
+                    logica.planificacion.PlanificadorMLFQ.parsearQuantums(mlfqQuantumsActual),
+                    semillaLotteryActual);
 
             // Reiniciar el balanceador al crear el sistema
             gestor.reiniciarBalanceador();
@@ -374,6 +382,23 @@ public class VentanaPrincipal extends JFrame {
             gestor.actualizarTiemposLlegada(tiempos);
             gestor.actualizarPrioridades(prioridades);
             refrescarTodo();
+        });
+
+        // Nucleo asignado y boletos de Lottery de cada proceso
+        panelProcesos.setFuenteNucleosYBoletos(gestor::getNucleoAsignado, gestor::getBoletos);
+        panelProcesos.setOnNucleosYBoletosCambiados((nucleos, boletos) -> {
+            List<String> errores = new java.util.ArrayList<>();
+            for (Object[] fila : nucleos) {
+                String error = gestor.asignarNucleo((Integer) fila[0], (Integer) fila[1]);
+                if (error != null) errores.add(error);
+            }
+            for (Object[] fila : boletos) {
+                gestor.setBoletos((Integer) fila[0], (Integer) fila[1]);
+            }
+            if (!errores.isEmpty()) {
+                JOptionPane.showMessageDialog(this, String.join("\n", errores),
+                        "Asignacion de nucleos", JOptionPane.WARNING_MESSAGE);
+            }
         });
     }
 
@@ -659,6 +684,7 @@ public class VentanaPrincipal extends JFrame {
                 srrAActual,
                 srrBActual,
                 parametrosMemoriaActual);
+        dialogo.setParametrosMLFQyLottery(mlfqQuantumsActual, semillaLotteryActual);
 
         dialogo.setVisible(true);
 
@@ -675,6 +701,10 @@ public class VentanaPrincipal extends JFrame {
         int nuevoSrrA = dialogo.getSrrA();
         int nuevoSrrB = dialogo.getSrrB();
         ParametrosMemoria nuevosParametrosMemoria = dialogo.getParametrosMemoria();
+        String viejoMlfq = this.mlfqQuantumsActual;
+        long viejaSemilla = this.semillaLotteryActual;
+        this.mlfqQuantumsActual = dialogo.getMlfqQuantums();
+        this.semillaLotteryActual = dialogo.getSemillaLottery();
 
         this.tamanoMemoriaActual = nuevoTamano;
         this.limiteKernelActual = nuevoKernel;
@@ -698,6 +728,8 @@ public class VentanaPrincipal extends JFrame {
             this.tamanoSwapActual = viejoSwap;
             this.cantidadCPUsActual = viejoCPUs;
             this.algoritmoCPUActual = viejoAlgoritmo;
+            this.mlfqQuantumsActual = viejoMlfq;
+            this.semillaLotteryActual = viejaSemilla;
             this.quantumRRActual = viejoQuantum;
             this.srrAActual = viejoSrrA;
             this.srrBActual = viejoSrrB;
@@ -723,6 +755,8 @@ public class VentanaPrincipal extends JFrame {
         config.setSrrA(nuevoSrrA);
         config.setSrrB(nuevoSrrB);
         config.setParametrosMemoria(nuevosParametrosMemoria);
+        config.setMlfqQuantums(mlfqQuantumsActual);
+        config.setLotterySemilla(semillaLotteryActual);
         config.guardar();
 
         configurarCallbacks();
@@ -792,10 +826,17 @@ public class VentanaPrincipal extends JFrame {
                     + ", b=" + srrBActual + ")";
         }
         if ("Lottery".equalsIgnoreCase(algoritmoCPUActual)) {
-            return " (quantum=" + quantumRRActual + ")";
+            return " (quantum=" + quantumRRActual
+                    + (semillaLotteryActual != 0 ? ", semilla=" + semillaLotteryActual : "") + ")";
         }
         if ("MLFQ".equalsIgnoreCase(algoritmoCPUActual)) {
-            return " (Q1=1, Q2=2, Q3=4)";
+            int[] q = logica.planificacion.PlanificadorMLFQ.parsearQuantums(mlfqQuantumsActual);
+            StringBuilder sb = new StringBuilder(" (");
+            for (int i = 0; i < q.length; i++) {
+                if (i > 0) sb.append(", ");
+                sb.append("Q").append(i + 1).append("=").append(q[i]);
+            }
+            return sb.append(")").toString();
         }
         return "";
     }
@@ -866,7 +907,7 @@ public class VentanaPrincipal extends JFrame {
         String alg = algoritmoCPUActual + parametrosAlgoritmo();
         String err = gestor.getErrorEjecucion();
 
-        historial.agregar(stats, alg, err);
+        historial.agregar(stats, alg, particionador.getNombre(), err);
 
         panelPantalla.agregarMensaje(">> Resumen guardado en historial (ejecucion #"
                 + historial.getCantidad() + ").");

@@ -33,7 +33,18 @@ public class HistorialEjecuciones {
     public synchronized ResumenEjecucion agregar(Estadisticas stats,
                                                  String alg,
                                                  String error) {
-        ResumenEjecucion r = ResumenEjecucion.desde(siguienteNumero, alg, stats, error);
+        return agregar(stats, alg, null, error);
+    }
+
+    /**
+     * Igual que {@link #agregar(Estadisticas, String, String)} pero guarda
+     * tambien la estrategia de memoria usada en la corrida.
+     */
+    public synchronized ResumenEjecucion agregar(Estadisticas stats,
+                                                 String alg,
+                                                 String memoria,
+                                                 String error) {
+        ResumenEjecucion r = ResumenEjecucion.desde(siguienteNumero, alg, stats, memoria, error);
         resumenes.add(r);
         siguienteNumero++;
         return r;

@@ -39,8 +39,9 @@ public class GestorCPUs {
      * @param planificador  estrategia de planificacion (FCFS, SPN, ...)
      * @param relojGlobal   instante simulado actual
      */
-    public void balancear(ListaProcesos listaProcesos, Planificador planificador, int relojGlobal) {
-        balanceador.asignarProcesos(nucleos, listaProcesos, planificador, relojGlobal);
+    public void balancear(ListaProcesos listaProcesos, Planificador planificador, int relojGlobal,
+                          java.util.function.BiPredicate<BCP, Integer> puede) {
+        balanceador.asignarProcesos(nucleos, listaProcesos, planificador, relojGlobal, puede);
     }
 
     public void reiniciarBalanceador() {

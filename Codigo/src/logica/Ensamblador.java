@@ -21,6 +21,10 @@ import java.util.Scanner;
  *   4. Sintaxis de cada linea (opcode, argumentos, registros, numeros).
  *   5. Debe contener al menos un 'INT 20H' para finalizar el programa.
  *   6. INT 09H (teclado) ya no esta soportada (Proyecto 2).
+ *   7. Comentarios: desde ';' hasta el final de la linea se ignora (salvo
+ *      dentro de comillas). Una linea que solo tiene comentario no cuenta.
+ *   8. Comas: no se acepta una coma de mas ni un argumento vacio
+ *      (por ejemplo 'ADD BX,' o 'MOV AX,,5').
  */
 public class Ensamblador {
 
@@ -84,7 +88,8 @@ public class Ensamblador {
         try (Scanner lector = new Scanner(archivo)) {
             while (lector.hasNextLine()) {
                 numeroLinea++;
-                String linea = lector.nextLine().trim();
+                String original = lector.nextLine();
+                String linea = quitarComentario(original).trim();
 
                 if (linea.isEmpty()) {
                     continue;
@@ -101,7 +106,7 @@ public class Ensamblador {
                     }
                 } catch (IllegalArgumentException e) {
                     erroresEncontrados.add("Linea " + numeroLinea + ": " + e.getMessage()
-                            + "\n-> \"" + linea + "\"");
+                            + "\n-> \"" + original.trim() + "\"");
                 }
             }
         } catch (Exception e) {
@@ -162,7 +167,13 @@ public class Ensamblador {
 
     // Convierte una línea en una Instruccion, validando opcode y argumentos.
     private Instruccion parsearLinea(String linea) {
-        int primerEspacio = linea.indexOf(' ');
+        int primerEspacio = -1;
+        for (int i = 0; i < linea.length(); i++) {
+            if (Character.isWhitespace(linea.charAt(i))) {
+                primerEspacio = i;
+                break;
+            }
+        }
         String opcode = (primerEspacio == -1) ? linea : linea.substring(0, primerEspacio);
         opcode = opcode.toUpperCase();
 
@@ -197,6 +208,7 @@ public class Ensamblador {
 
         StringBuilder actual = new StringBuilder();
         boolean dentroComillas = false;
+        boolean huboComa = false;
 
         for (int i = 0; i < resto.length(); i++) {
             char c = resto.charAt(i);
@@ -207,16 +219,43 @@ public class Ensamblador {
             } else if (c == ',' && !dentroComillas) {
                 argumentos.add(actual.toString().trim());
                 actual.setLength(0);
+                huboComa = true;
             } else {
                 actual.append(c);
             }
         }
 
-        if (actual.length() > 0) {
+        // Despues de una coma siempre tiene que venir un argumento.
+        if (actual.length() > 0 || huboComa) {
             argumentos.add(actual.toString().trim());
         }
 
+        if (dentroComillas) {
+            throw new IllegalArgumentException("falta cerrar las comillas");
+        }
+        for (String arg : argumentos) {
+            if (arg.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "argumento vacio: hay una coma de mas o falta un argumento");
+            }
+        }
+
         return argumentos;
+    }
+
+    // Quita el comentario de la linea: todo lo que va desde ';' (fuera de
+    // comillas) hasta el final.
+    private static String quitarComentario(String linea) {
+        boolean dentroComillas = false;
+        for (int i = 0; i < linea.length(); i++) {
+            char c = linea.charAt(i);
+            if (c == '"') {
+                dentroComillas = !dentroComillas;
+            } else if (c == ';' && !dentroComillas) {
+                return linea.substring(0, i);
+            }
+        }
+        return linea;
     }
 
     // Valida la forma de los argumentos según el opcode.

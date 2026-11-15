@@ -43,6 +43,8 @@ public class VentanaConfiguracion extends JDialog {
     private int srrB;
     private ParametrosMemoria parametrosMemoria;
     private PanelConfigAsignacion panelAsignacion;
+    private String mlfqQuantums = config.ConfiguracionExterna.MLFQ_QUANTUMS_DEFAULT;
+    private long semillaLottery = config.ConfiguracionExterna.LOTTERY_SEMILLA_DEFAULT;
 
     /** Constructor legacy (sin quantum). Usa QUANTUM_DEFAULT. */
     public VentanaConfiguracion(Frame propietario,
@@ -231,6 +233,10 @@ public class VentanaConfiguracion extends JDialog {
             tabs.setSelectedComponent(panelAsignacion);
             return;
         }
+        if (!panelCPU.validar()) {
+            tabs.setSelectedComponent(panelCPU);
+            return;
+        }
 
         int limiteKernel = panelMemoria.getLimiteKernel();
         int maxArchivos = panelDisco.getMaxArchivos();
@@ -260,6 +266,8 @@ public class VentanaConfiguracion extends JDialog {
         algoritmoCPU = panelCPU.getAlgoritmoCPU();
         quantumRR = panelCPU.getQuantum();
         parametrosMemoria = panelAsignacion.getParametrosMemoria();
+        mlfqQuantums = panelCPU.getMlfqQuantums();
+        semillaLottery = panelCPU.getSemillaLottery();
         srrA = panelCPU.getSrrA();
         srrB = panelCPU.getSrrB();
 
@@ -311,6 +319,26 @@ public class VentanaConfiguracion extends JDialog {
      */
     public int getSrrA() {
         return srrA;
+    }
+
+    /**
+     * Muestra los parametros actuales de MLFQ y Lottery (llamar antes de
+     * setVisible).
+     */
+    public void setParametrosMLFQyLottery(String mlfqQuantums, long semillaLottery) {
+        this.mlfqQuantums = mlfqQuantums;
+        this.semillaLottery = semillaLottery;
+        panelCPU.setParametrosMLFQyLottery(mlfqQuantums, semillaLottery);
+    }
+
+    /** @return quantum de cada cola de MLFQ, como texto ("1,2,4"). */
+    public String getMlfqQuantums() {
+        return mlfqQuantums;
+    }
+
+    /** @return semilla de Lottery (0 = al azar). */
+    public long getSemillaLottery() {
+        return semillaLottery;
     }
 
     /**

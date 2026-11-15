@@ -70,6 +70,18 @@ public interface EstrategiaPlanificacion {
     }
 
     /**
+     * Texto para la bitacora de cambios de contexto que explica por que
+     * se expulso al proceso. Por defecto null: GestorProcesos usa el texto
+     * de SRT (tiempo restante).
+     *
+     * @param enCPU     proceso que sale de la CPU
+     * @param candidato proceso que lo reemplaza
+     */
+    default String motivoExpulsion(BCP enCPU, BCP candidato) {
+        return null;
+    }
+
+    /**
      * Actualiza el reloj global simulado de la estrategia.
      *
      * Solo las estrategias que dependen del reloj (ej. HRRN, que

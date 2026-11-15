@@ -48,6 +48,14 @@ public class PanelConfigCPU extends JPanel {
     private JLabel lblSrrB;
     private JTextField txtSrrB;
 
+    // MLFQ: quantum de cada cola; Lottery: semilla de los sorteos
+    private JLabel lblMlfq;
+    private JTextField txtMlfq;
+    private JLabel lblSemilla;
+    private JTextField txtSemilla;
+    private String mlfqInicial = config.ConfiguracionExterna.MLFQ_QUANTUMS_DEFAULT;
+    private long semillaInicial = config.ConfiguracionExterna.LOTTERY_SEMILLA_DEFAULT;
+
     // Callback para avisar a la ventana cuando cambia la cantidad de CPUs
     private Runnable onCpusChanged;
 
@@ -66,6 +74,16 @@ public class PanelConfigCPU extends JPanel {
     // Crea el panel con los valores actuales (incluye quantum y a, b de Selfish RR).
     public PanelConfigCPU(int cpusActual, String algoritmoActual, int quantumActual,
                           int srrAActual, int srrBActual) {
+        this(cpusActual, algoritmoActual, quantumActual, srrAActual, srrBActual,
+             config.ConfiguracionExterna.MLFQ_QUANTUMS_DEFAULT,
+             config.ConfiguracionExterna.LOTTERY_SEMILLA_DEFAULT);
+    }
+
+    // Crea el panel con todos los parametros (incluye MLFQ y Lottery).
+    public PanelConfigCPU(int cpusActual, String algoritmoActual, int quantumActual,
+                          int srrAActual, int srrBActual, String mlfqActual, long semillaActual) {
+        this.mlfqInicial = mlfqActual;
+        this.semillaInicial = semillaActual;
         construirInterfaz(cpusActual, algoritmoActual, quantumActual, srrAActual, srrBActual);
     }
 
@@ -168,6 +186,34 @@ public class PanelConfigCPU extends JPanel {
         gbc.weightx = 1;
         add(txtSrrB, gbc);
 
+        // ==== MLFQ: quantum de cada cola (solo visible para MLFQ) ====
+        lblMlfq = crearLabelCampo("Quantum de cada cola (Q1, Q2, ...)");
+        gbc.gridx = 0;
+        gbc.gridy = 6;
+        gbc.weightx = 0;
+        add(lblMlfq, gbc);
+
+        txtMlfq = new JTextField(mlfqInicial, 10);
+        txtMlfq.setFont(Paleta.FUENTE_MONO);
+        txtMlfq.setToolTipText("Una cola por numero, de mayor a menor prioridad. Ej.: 1,2,4");
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        add(txtMlfq, gbc);
+
+        // ==== Lottery: semilla (solo visible para Lottery) ====
+        lblSemilla = crearLabelCampo("Semilla de los sorteos (0 = al azar)");
+        gbc.gridx = 0;
+        gbc.gridy = 7;
+        gbc.weightx = 0;
+        add(lblSemilla, gbc);
+
+        txtSemilla = new JTextField(String.valueOf(semillaInicial), 10);
+        txtSemilla.setFont(Paleta.FUENTE_MONO);
+        txtSemilla.setToolTipText("Con la misma semilla los sorteos se repiten igual en cada ejecucion.");
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        add(txtSemilla, gbc);
+
         // ==== Texto de ayuda ====
         JLabel lblAyuda = new JLabel("<html><body style='width: 300px'>"
                 + "El algoritmo seleccionado se aplicará a todas las CPUs.<br>"
@@ -175,12 +221,15 @@ public class PanelConfigCPU extends JPanel {
                 + "se actualizará automáticamente.<br>"
                 + "Selfish RR: un proceso nuevo espera hasta que su prioridad "
                 + "alcanza la de los aceptados. Con b = 0 se comporta como RR; "
-                + "con b &gt;= a, como FCFS."
+                + "con b &gt;= a, como FCFS.<br>"
+                + "MLFQ: una cola por quantum; el proceso baja de cola al agotar su "
+                + "quantum. Lottery: los boletos de cada proceso se editan en "
+                + "'Asignar Tiempos y Prioridades'."
                 + "</body></html>");
         lblAyuda.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         lblAyuda.setForeground(Paleta.TEXTO_NORMAL);
         gbc.gridx = 0;
-        gbc.gridy = 5;
+        gbc.gridy = 8;
         gbc.gridwidth = 2;
         gbc.insets = new Insets(15, 6, 6, 6);
         add(lblAyuda, gbc);
@@ -215,6 +264,13 @@ public class PanelConfigCPU extends JPanel {
         txtSrrA.setVisible(esSelfishRR);
         lblSrrB.setVisible(esSelfishRR);
         txtSrrB.setVisible(esSelfishRR);
+
+        boolean esMLFQ = "MLFQ".equals(seleccionado);
+        boolean esLottery = "Lottery".equals(seleccionado);
+        lblMlfq.setVisible(esMLFQ);
+        txtMlfq.setVisible(esMLFQ);
+        lblSemilla.setVisible(esLottery);
+        txtSemilla.setVisible(esLottery);
         
         revalidate();
         repaint();
@@ -292,6 +348,44 @@ public class PanelConfigCPU extends JPanel {
     }
 
     // Lee un entero del campo; si no es número o está fuera de rango, usa el default.
+    /** Muestra los parametros actuales de MLFQ y Lottery en sus campos. */
+    public void setParametrosMLFQyLottery(String mlfqQuantums, long semilla) {
+        if (mlfqQuantums != null) txtMlfq.setText(mlfqQuantums);
+        txtSemilla.setText(String.valueOf(Math.max(0, semilla)));
+    }
+
+    /** @return el texto de los quantums de MLFQ (se valida al aceptar). */
+    public String getMlfqQuantums() {
+        return txtMlfq.getText().trim();
+    }
+
+    /** @return la semilla de Lottery; si no es un entero >= 0, 0 (al azar). */
+    public long getSemillaLottery() {
+        try {
+            long v = Long.parseLong(txtSemilla.getText().trim());
+            return Math.max(0, v);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Revisa los parametros que no se corrigen solos. Si algo esta mal,
+     * muestra el problema y devuelve false.
+     */
+    public boolean validar() {
+        if ("MLFQ".equals(comboAlgoritmo.getSelectedItem())) {
+            try {
+                logica.planificacion.PlanificadorMLFQ.parsearQuantums(getMlfqQuantums());
+            } catch (IllegalArgumentException e) {
+                javax.swing.JOptionPane.showMessageDialog(this, e.getMessage(),
+                        "MLFQ", javax.swing.JOptionPane.ERROR_MESSAGE);
+                return false;
+            }
+        }
+        return true;
+    }
+
     private int leerEntero(JTextField campo, int minimo, int maximo, int porDefecto) {
         try {
             int v = Integer.parseInt(campo.getText().trim());

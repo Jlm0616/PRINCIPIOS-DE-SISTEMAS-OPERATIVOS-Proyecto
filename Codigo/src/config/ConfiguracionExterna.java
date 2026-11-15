@@ -25,6 +25,8 @@ import java.util.Properties;
  *     Lottery, Guaranteed, MLFQ.
  *   - quantum aplica para RR, Lottery y Selfish RR. Default = 1.
  *   - srr_a y srr_b solo aplican para Selfish RR.
+ *   - mlfq_quantums: quantum de cada cola de MLFQ, por ejemplo 1,2,4 (3 colas).
+ *   - lottery_semilla: semilla de los sorteos de Lottery; 0 = distinta cada vez.
  *   - Estrategia de asignacion de memoria y sus parametros:
  *       estrategia_memoria = First Fit | Next Fit | Best Fit | Fija igual |
  *                            Fija distinta | Paginacion | Paginacion virtual
@@ -49,6 +51,8 @@ public class ConfiguracionExterna {
     public static final int QUANTUM_DEFAULT = 1;
     public static final int SRR_A_DEFAULT = 2;
     public static final int SRR_B_DEFAULT = 1;
+    public static final String MLFQ_QUANTUMS_DEFAULT = "1,2,4";
+    public static final long LOTTERY_SEMILLA_DEFAULT = 0L;
 
     public static final int MAX_PROCESOS = 5;
 
@@ -93,6 +97,8 @@ public class ConfiguracionExterna {
     private int quantum         = QUANTUM_DEFAULT;
     private int srrA            = SRR_A_DEFAULT;
     private int srrB            = SRR_B_DEFAULT;
+    private String mlfqQuantums = MLFQ_QUANTUMS_DEFAULT;
+    private long lotterySemilla = LOTTERY_SEMILLA_DEFAULT;
     private ParametrosMemoria parametrosMemoria = ParametrosMemoria.porDefecto();
 
     private boolean huboCorrecciones = false;
@@ -123,6 +129,8 @@ public class ConfiguracionExterna {
             quantum        = parsear(props, "quantum",        quantum);
             srrA           = parsear(props, "srr_a",          srrA);
             srrB           = parsear(props, "srr_b",          srrB);
+            mlfqQuantums   = props.getProperty("mlfq_quantums", mlfqQuantums).trim();
+            lotterySemilla = parsear(props, "lottery_semilla", (int) lotterySemilla);
 
             // Estrategia de memoria y sus parametros
             ParametrosMemoria def = ParametrosMemoria.porDefecto();
@@ -272,6 +280,18 @@ public class ConfiguracionExterna {
             agregarCorreccion("algoritmo_cpu=" + algoritmoCPU
                     + " invalido. Usando " + ALGORITMO_CPU_DEFAULT + ".");
             algoritmoCPU = ALGORITMO_CPU_DEFAULT;
+        }
+
+        // ==== MLFQ: quantum de cada cola ====
+        try {
+            logica.planificacion.PlanificadorMLFQ.parsearQuantums(mlfqQuantums);
+        } catch (IllegalArgumentException e) {
+            agregarCorreccion(e.getMessage() + " Usando " + MLFQ_QUANTUMS_DEFAULT + ".");
+            mlfqQuantums = MLFQ_QUANTUMS_DEFAULT;
+        }
+        if (lotterySemilla < 0) {
+            agregarCorreccion("lottery_semilla=" + lotterySemilla + " invalido (debe ser >= 0). Usando 0.");
+            lotterySemilla = LOTTERY_SEMILLA_DEFAULT;
         }
 
         // ==== SELFISH RR: a y b ====
@@ -459,6 +479,8 @@ public class ConfiguracionExterna {
         props.setProperty("quantum",         String.valueOf(quantum));
         props.setProperty("srr_a",           String.valueOf(srrA));
         props.setProperty("srr_b",           String.valueOf(srrB));
+        props.setProperty("mlfq_quantums",   mlfqQuantums);
+        props.setProperty("lottery_semilla", String.valueOf(lotterySemilla));
         props.setProperty("estrategia_memoria", parametrosMemoria.getEstrategia());
         props.setProperty("particion_tamano",   String.valueOf(parametrosMemoria.getParticionTamano()));
         props.setProperty("particiones",        parametrosMemoria.getParticiones());
@@ -501,6 +523,8 @@ public class ConfiguracionExterna {
     public int getQuantum()        { return quantum; }
     public int getSrrA()           { return srrA; }
     public int getSrrB()           { return srrB; }
+    public String getMlfqQuantums() { return mlfqQuantums; }
+    public long getLotterySemilla() { return lotterySemilla; }
     public ParametrosMemoria getParametrosMemoria() { return parametrosMemoria; }
     public int getMaxProcesos()    { return MAX_PROCESOS; }
 
@@ -519,6 +543,8 @@ public class ConfiguracionExterna {
     public void setQuantum(int v)        { this.quantum = v; }
     public void setSrrA(int v)           { this.srrA = v; }
     public void setSrrB(int v)           { this.srrB = v; }
+    public void setMlfqQuantums(String v) { this.mlfqQuantums = (v != null) ? v.trim() : MLFQ_QUANTUMS_DEFAULT; }
+    public void setLotterySemilla(long v) { this.lotterySemilla = Math.max(0, v); }
     public void setParametrosMemoria(ParametrosMemoria v) {
         this.parametrosMemoria = (v != null) ? v : ParametrosMemoria.porDefecto();
     }
@@ -536,6 +562,8 @@ public class ConfiguracionExterna {
                 + ", quantum=" + quantum
                 + ", srrA=" + srrA
                 + ", srrB=" + srrB
+                + ", mlfqQuantums=" + mlfqQuantums
+                + ", lotterySemilla=" + lotterySemilla
                 + ", memoria=" + parametrosMemoria.describir()
                 + ", maxProcesos=" + MAX_PROCESOS
                 + "}";

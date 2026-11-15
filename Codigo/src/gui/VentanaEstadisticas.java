@@ -247,9 +247,10 @@ public class VentanaEstadisticas extends JDialog {
 
         // Modelo de la tabla
         DefaultTableModel modeloAcum = new DefaultTableModel(
-                new Object[]{"#", "Algoritmo", "Procesos", "Dur. total",
-                             "Dur. prom.", "Mas largo", "Mas corto",
-                             "T. ocioso", "Prom. Tr/Ts", "Estado"}, 0) {
+                new Object[]{"#", "Algoritmo", "Memoria", "CPUs", "Procesos",
+                             "Inicio", "Fin", "Dur. total", "Dur. prom.",
+                             "Mas largo", "Mas corto", "T. ocioso",
+                             "Prom. Tr", "Prom. Tr/Ts", "Estado"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -262,12 +263,17 @@ public class VentanaEstadisticas extends JDialog {
             modeloAcum.addRow(new Object[]{
                 "#" + r.getNumeroEjecucion(),
                 r.getAlgoritmo(),
+                r.getEstrategiaMemoria(),
+                String.valueOf(r.getCantidadCPUs()),
                 String.valueOf(r.getCantidadProcesos()),
+                "t=" + r.getTiempoInicio(),
+                "t=" + r.getTiempoFin(),
                 r.getDuracionTotal() + " s",
                 r.getDuracionPromedio() + " s",
                 r.getDuracionMasLarga() + " s",
                 r.getDuracionMasCorta() + " s",
                 r.getTiempoOcioso() + " s",
+                String.format("%.2f", r.getPromedioTurnaround()),
                 String.format("%.2f", r.getPromedioTrTs()),
                 estado
             });
@@ -292,7 +298,7 @@ public class VentanaEstadisticas extends JDialog {
                     c.setBackground(row % 2 == 0 ? Color.WHITE : Paleta.FONDO_FILA_ALT);
                     c.setForeground(Paleta.TEXTO_NORMAL);
                     // Pintar en rojo la columna "Estado" si es ERROR.
-                    if (column == 9 && "ERROR".equals(value)) {
+                    if (column == table.getColumnCount() - 1 && "ERROR".equals(value)) {
                         c.setForeground(new Color(0xB0, 0x00, 0x20));
                     }
                 }
@@ -339,6 +345,7 @@ public class VentanaEstadisticas extends JDialog {
         int sumaDurProm = 0;
         int sumaOcioso = 0;
         double sumaTrTs = 0.0;
+        double sumaTr = 0.0;
         int conError = 0;
 
         for (ResumenEjecucion r : resumenes) {
@@ -347,6 +354,7 @@ public class VentanaEstadisticas extends JDialog {
             sumaDurProm += r.getDuracionPromedio();
             sumaOcioso += r.getTiempoOcioso();
             sumaTrTs += r.getPromedioTrTs();
+            sumaTr += r.getPromedioTurnaround();
             if (r.terminoConError()) conError++;
         }
 
@@ -355,6 +363,7 @@ public class VentanaEstadisticas extends JDialog {
         int promDurProm = (n > 0) ? sumaDurProm / n : 0;
         int promOcioso = (n > 0) ? sumaOcioso / n : 0;
         double promTrTs = (n > 0) ? sumaTrTs / n : 0.0;
+        double promTr = (n > 0) ? sumaTr / n : 0.0;
 
         JLabel l0 = crearLabelResumen("Ejecuciones totales:", String.valueOf(n));
         JLabel l1 = crearLabelResumen("Con error:", String.valueOf(conError));
@@ -382,6 +391,10 @@ public class VentanaEstadisticas extends JDialog {
                 String.format("%.2f", promTrTs));
 
         gbc.gridx = 0; gbc.gridy = 3; panel.add(l6, gbc);
+
+        JLabel l7 = crearLabelResumen("Promedio Tr global:",
+                String.format("%.2f", promTr));
+        gbc.gridx = 1; panel.add(l7, gbc);
 
         return panel;
     }
@@ -536,6 +549,24 @@ public class VentanaEstadisticas extends JDialog {
         gbc.gridx = 0; gbc.gridy = 3; panel.add(l6, gbc);
         gbc.gridx = 1; panel.add(l7, gbc);
 
+        // ==== Fila 4: tiempo de inicio y tiempo final de la corrida ====
+        JLabel l8 = crearLabelResumen("Tiempo de inicio:",
+                "t=" + estadisticas.getTiempoInicio());
+        JLabel l9 = crearLabelResumen("Tiempo final:",
+                "t=" + estadisticas.getTiempoFin());
+
+        gbc.gridx = 0; gbc.gridy = 4; panel.add(l8, gbc);
+        gbc.gridx = 1; panel.add(l9, gbc);
+
+        // ==== Fila 5: promedio de Tr y CPUs ====
+        JLabel l10 = crearLabelResumen("Promedio Tr:",
+                String.format("%.2f", estadisticas.getPromedioTurnaround()));
+        JLabel l11 = crearLabelResumen("CPUs:",
+                String.valueOf(estadisticas.getCantidadNucleos()));
+
+        gbc.gridx = 0; gbc.gridy = 5; panel.add(l10, gbc);
+        gbc.gridx = 1; panel.add(l11, gbc);
+
         return panel;
     }
 
@@ -582,7 +613,7 @@ public class VentanaEstadisticas extends JDialog {
         ));
 
         modelo = new DefaultTableModel(
-                new Object[]{"ID", "CPU", "Inicio", "Fin", "Duracion",
+                new Object[]{"ID", "CPU", "Llegada", "Inicio", "Fin", "Duracion",
                              "Turnaround", "Tr/Ts", "% del total", "Prioridad"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -602,6 +633,7 @@ public class VentanaEstadisticas extends JDialog {
             modelo.addRow(new Object[]{
                 "ID " + lp.getId(),
                 cpuStr,
+                "t=" + lp.getLlegada(),
                 formatearTiempo(lp.getInicio()),
                 formatearTiempo(lp.getFin()),
                 dur + " s",

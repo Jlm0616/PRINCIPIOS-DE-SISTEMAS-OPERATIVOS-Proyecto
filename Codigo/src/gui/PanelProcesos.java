@@ -52,6 +52,12 @@ public class PanelProcesos extends JPanel {
 
     private BiConsumer<Object[][], Object[][]> onTiemposYPrioridadesCambiados;
 
+    // Nucleo asignado y boletos de cada proceso (los da GestorProcesos), y
+    // aviso cuando el usuario los cambia en la ventana de llegadas.
+    private java.util.function.IntUnaryOperator nucleoDe = id -> -1;
+    private java.util.function.IntBinaryOperator boletosDe = (id, rafaga) -> rafaga;
+    private BiConsumer<Object[][], Object[][]> onNucleosYBoletosCambiados;
+
     private List<BCP> listaProcesosTemporal = new ArrayList<>();
     private List<TrabajoNuevo> trabajosNuevosTemporal = new ArrayList<>();
     
@@ -223,7 +229,9 @@ public class PanelProcesos extends JPanel {
                 (java.awt.Frame) javax.swing.SwingUtilities.getWindowAncestor(this),
                 nucleosActuales,
                 listaProcesosTemporal,
-                trabajosNuevosTemporal
+                trabajosNuevosTemporal,
+                nucleoDe,
+                boletosDe
         );
 
         ventana.setVisible(true);
@@ -232,6 +240,10 @@ public class PanelProcesos extends JPanel {
             Object[][] tiempos     = ventana.getTiempos();
             Object[][] prioridades = ventana.getPrioridades();
 
+            // Primero nucleos y boletos, porque el cambio de llegadas refresca la vista.
+            if (onNucleosYBoletosCambiados != null) {
+                onNucleosYBoletosCambiados.accept(ventana.getNucleos(), ventana.getBoletos());
+            }
             if (onTiemposYPrioridadesCambiados != null) {
                 onTiemposYPrioridadesCambiados.accept(tiempos, prioridades);
             }
@@ -271,7 +283,7 @@ public class PanelProcesos extends JPanel {
                 modeloProcesos.addRow(new Object[]{
                     "CPU " + nucleo.getIdNucleo() + " -> ID " + bcp.getId(),
                     bcp.getEstado().toString(),
-                    esLottery ? bcp.getRafaga() : ""
+                    esLottery ? boletosDe.applyAsInt(bcp.getId(), bcp.getRafaga()) : ""
                 });
                 idsAgregados.add(bcp.getId());
             } else {
@@ -284,7 +296,7 @@ public class PanelProcesos extends JPanel {
                 if (idsAgregados.add(bcp.getId())) {
                     modeloProcesos.addRow(new Object[]{
                         "ID " + bcp.getId() + " (En RAM)", bcp.getEstado().toString(),
-                        esLottery ? bcp.getRafaga() : ""
+                        esLottery ? boletosDe.applyAsInt(bcp.getId(), bcp.getRafaga()) : ""
                     });
                 }
             }
@@ -296,7 +308,7 @@ public class PanelProcesos extends JPanel {
                     "ID " + t.getId() + " " + t.getNombre()
                         + " (Espera TL=" + t.getTiempoLlegada() + ")",
                     "NEW",
-                    esLottery ? t.getTamano() : ""
+                    esLottery ? boletosDe.applyAsInt(t.getId(), t.getTamano()) : ""
                 });
             }
         }
@@ -322,6 +334,23 @@ public class PanelProcesos extends JPanel {
 
     public void setOnTiemposYPrioridadesCambiados(BiConsumer<Object[][], Object[][]> callback) {
         this.onTiemposYPrioridadesCambiados = callback;
+    }
+
+    /**
+     * Indica de donde sale el nucleo asignado y los boletos de cada proceso.
+     */
+    public void setFuenteNucleosYBoletos(java.util.function.IntUnaryOperator nucleoDe,
+                                         java.util.function.IntBinaryOperator boletosDe) {
+        if (nucleoDe != null) this.nucleoDe = nucleoDe;
+        if (boletosDe != null) this.boletosDe = boletosDe;
+    }
+
+    /**
+     * Aviso cuando el usuario cambia nucleos y boletos: recibe [ID, nucleo]
+     * (-1 = cualquiera) y [ID, boletos].
+     */
+    public void setOnNucleosYBoletosCambiados(BiConsumer<Object[][], Object[][]> callback) {
+        this.onNucleosYBoletosCambiados = callback;
     }
 
     private JPanel crearPanelBCP() {

@@ -29,6 +29,7 @@ import java.util.List;
 public class LineaProceso {
 
     private final int id;
+    private final int llegada;       // instante de llegada al sistema
     private final int inicio;        // instante simulado de inicio (o -1)
     private final int fin;           // instante simulado de fin (o -1)
     private final int duracion;      // rafaga original (tiempo efectivo de CPU)
@@ -49,6 +50,7 @@ public class LineaProceso {
      */
     public LineaProceso(BCPTerminado pt) {
         this.id = pt.getId();
+        this.llegada = pt.getTiempoLlegada();
         this.inicio = pt.getTiempoInicio();
         this.fin = pt.getTiempoFin();
         this.duracion = calcularDuracion(pt);
@@ -80,6 +82,7 @@ public class LineaProceso {
     /* ==================== GETTERS ==================== */
 
     public int getId()           { return id; }
+    public int getLlegada()      { return llegada; }
     public int getInicio()       { return inicio; }
     public int getFin()          { return fin; }
     public int getDuracion()     { return duracion; }

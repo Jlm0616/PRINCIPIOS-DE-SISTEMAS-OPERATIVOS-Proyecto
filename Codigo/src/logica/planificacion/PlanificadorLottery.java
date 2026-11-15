@@ -10,9 +10,13 @@ import java.util.Random;
 /**
  * Planificador Lottery (Lotería).
  *
- * Politica: cada proceso recibe una cantidad de tickets proporcional a su
- * peso (usamos la rafaga como peso). En cada paso se realiza un sorteo
- * para elegir el siguiente proceso.
+ * Politica (Tanenbaum, seccion 2.4.3): cada proceso tiene boletos; en
+ * cada sorteo se elige un boleto al azar y gana su dueno. Mas boletos =
+ * mas probabilidad de recibir la CPU.
+ *
+ * Los boletos de cada proceso los da una funcion (GestorProcesos usa los
+ * que el usuario puso en la ventana de llegadas; por defecto, la rafaga).
+ * Con una semilla fija los sorteos se repiten igual en cada ejecucion.
  *
  * Es apropiativo por quantum: el proceso ganador ejecuta 1 quantum y luego
  * vuelve a la cola para un nuevo sorteo.
@@ -25,6 +29,9 @@ import java.util.Random;
 public class PlanificadorLottery implements EstrategiaPlanificacion {
 
     private final Random random;
+
+    /** Boletos de cada proceso. Por defecto, la rafaga. */
+    private java.util.function.ToIntFunction<BCP> boletos = BCP::getRafaga;
 
     public PlanificadorLottery() {
         this.random = new Random();
@@ -54,7 +61,7 @@ public class PlanificadorLottery implements EstrategiaPlanificacion {
         int totalTickets = 0;
         for (BCP bcp : procesos) {
             if (bcp.getEstado() == EstadoProceso.READY) {
-                totalTickets += Math.max(1, bcp.getRafaga()); // Minimo 1 ticket
+                totalTickets += getBoletos(bcp); // Minimo 1 ticket
             }
         }
 
@@ -69,7 +76,7 @@ public class PlanificadorLottery implements EstrategiaPlanificacion {
         int acumulado = 0;
         for (BCP bcp : procesos) {
             if (bcp.getEstado() == EstadoProceso.READY) {
-                int tickets = Math.max(1, bcp.getRafaga());
+                int tickets = getBoletos(bcp);
                 acumulado += tickets;
                 if (acumulado >= ganador) {
                     return bcp;
@@ -78,6 +85,16 @@ public class PlanificadorLottery implements EstrategiaPlanificacion {
         }
 
         return null;
+    }
+
+    /** Indica de donde salen los boletos de cada proceso. */
+    public void setBoletos(java.util.function.ToIntFunction<BCP> boletos) {
+        if (boletos != null) this.boletos = boletos;
+    }
+
+    /** @return los boletos del proceso (al menos 1). */
+    public int getBoletos(BCP bcp) {
+        return Math.max(1, boletos.applyAsInt(bcp));
     }
 
     @Override

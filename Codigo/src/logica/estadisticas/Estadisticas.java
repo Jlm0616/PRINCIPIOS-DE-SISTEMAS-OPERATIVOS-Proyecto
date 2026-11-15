@@ -44,6 +44,11 @@ public class Estadisticas {
     // === NUEVOS CAMPOS (Diagrama de Gantt) ===
     /** Instante minimo registrado (0 si no hay datos). */
     private final int instanteMin;
+    // Primer inicio y ultimo fin de la corrida, promedio de Tr y CPUs usadas
+    private final int tiempoInicio;
+    private final int tiempoFin;
+    private final double promedioTurnaround;
+    private final int cantidadNucleos;
     /** Instante maximo registrado (0 si no hay datos). */
     private final int instanteMax;
     /** IDs de CPUs presentes (ordenados ascendente). */
@@ -115,6 +120,25 @@ public class Estadisticas {
         this.duracionMasLarga = masLargo;
         this.duracionMasCorta = masCorto;
         this.promedioTrTs = (conTrTs > 0) ? (sumaTrTs / conTrTs) : 0.0;
+
+        // Tiempo de inicio de la corrida (primer proceso que entra a la CPU),
+        // tiempo final (ultimo proceso que termina) y promedio de Tr.
+        int primerInicio = Integer.MAX_VALUE;
+        int ultimoFin = Integer.MIN_VALUE;
+        int sumaTr = 0;
+        int conTr = 0;
+        for (LineaProceso lp : lineas) {
+            if (lp.getInicio() >= 0 && lp.getInicio() < primerInicio) primerInicio = lp.getInicio();
+            if (lp.getFin() >= 0 && lp.getFin() > ultimoFin) ultimoFin = lp.getFin();
+            if (lp.getTurnaround() > 0) {
+                sumaTr += lp.getTurnaround();
+                conTr++;
+            }
+        }
+        this.tiempoInicio = (primerInicio == Integer.MAX_VALUE) ? 0 : primerInicio;
+        this.tiempoFin = (ultimoFin == Integer.MIN_VALUE) ? 0 : ultimoFin;
+        this.promedioTurnaround = (conTr > 0) ? ((double) sumaTr / conTr) : 0.0;
+        this.cantidadNucleos = Math.max(0, cantidadNucleos);
 
         // 3. Calcular instantes y CPUs presentes (para el Gantt)
         int min = Integer.MAX_VALUE;
@@ -205,6 +229,34 @@ public class Estadisticas {
      */
     public int getTiempoOcioso() {
         return tiempoOcioso;
+    }
+
+    /**
+     * @return instante en que el primer proceso entro a la CPU.
+     */
+    public int getTiempoInicio() {
+        return tiempoInicio;
+    }
+
+    /**
+     * @return instante en que termino el ultimo proceso.
+     */
+    public int getTiempoFin() {
+        return tiempoFin;
+    }
+
+    /**
+     * @return promedio del tiempo de retorno (Tr = fin - llegada).
+     */
+    public double getPromedioTurnaround() {
+        return promedioTurnaround;
+    }
+
+    /**
+     * @return cantidad de CPUs configuradas en la corrida.
+     */
+    public int getCantidadNucleos() {
+        return cantidadNucleos;
     }
 
     /* ==================== GETTERS GANTT ==================== */

@@ -34,10 +34,81 @@ import java.util.Map;
  */
 public class PlanificadorMLFQ implements EstrategiaPlanificacion {
 
-    // ==== Configuracion fija de niveles y quantums ====
-    public static final int NUM_NIVELES = 3;
-    /** Nivel 1 (mas prioritario), 2 y 3 (menos prioritario). Indice 0 = nivel 1. */
-    private static final int[] QUANTUMS = { 1, 2, 4 };
+    // ==== Niveles y quantums (configurables) ====
+
+    /** Quantums por defecto: 3 colas con 1, 2 y 4 (q = 2^i del libro). */
+    public static final int[] QUANTUMS_DEFAULT = { 1, 2, 4 };
+
+    /** Cantidad de colas por defecto (se conserva para el codigo que la usa). */
+    public static final int NUM_NIVELES = QUANTUMS_DEFAULT.length;
+
+    /** Quantum de cada cola: QUANTUMS[i] es el de la cola Q(i+1). */
+    private final int[] QUANTUMS;
+
+    /** Cantidad de colas de esta instancia. */
+    private final int numNiveles;
+
+    /** Crea el planificador con las colas por defecto (1, 2 y 4). */
+    public PlanificadorMLFQ() {
+        this(QUANTUMS_DEFAULT);
+    }
+
+    /**
+     * Crea el planificador con una cola por cada quantum de la lista, de
+     * mayor a menor prioridad (Q1 es la mas alta).
+     *
+     * @param quantums quantum de cada cola, todos >= 1 (al menos uno)
+     */
+    public PlanificadorMLFQ(int[] quantums) {
+        if (quantums == null || quantums.length == 0) {
+            throw new IllegalArgumentException("MLFQ necesita al menos una cola");
+        }
+        for (int q : quantums) {
+            if (q < 1) throw new IllegalArgumentException("Cada quantum de MLFQ debe ser >= 1");
+        }
+        this.QUANTUMS = quantums.clone();
+        this.numNiveles = quantums.length;
+    }
+
+    /**
+     * Lee la lista de quantums de la configuracion, por ejemplo "1,2,4".
+     *
+     * @throws IllegalArgumentException si no son enteros >= 1 separados por
+     *         comas (entre 1 y 10 colas)
+     */
+    public static int[] parsearQuantums(String texto) {
+        if (texto == null || texto.trim().isEmpty()) {
+            throw new IllegalArgumentException("MLFQ: indique el quantum de cada cola, por ejemplo 1,2,4.");
+        }
+        String[] partes = texto.trim().split("\\s*,\\s*");
+        if (partes.length > 10) {
+            throw new IllegalArgumentException("MLFQ: como maximo 10 colas (se recibieron " + partes.length + ").");
+        }
+        int[] q = new int[partes.length];
+        for (int i = 0; i < partes.length; i++) {
+            try {
+                q[i] = Integer.parseInt(partes[i]);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("MLFQ: los quantums deben ser enteros separados por"
+                        + " comas, por ejemplo 1,2,4 (se recibio \"" + texto + "\").");
+            }
+            if (q[i] < 1 || q[i] > 20) {
+                throw new IllegalArgumentException("MLFQ: cada quantum debe estar entre 1 y 20"
+                        + " (se recibio \"" + texto + "\").");
+            }
+        }
+        return q;
+    }
+
+    /** @return la cantidad de colas. */
+    public int getNumNiveles() {
+        return numNiveles;
+    }
+
+    /** @return copia de los quantums de las colas. */
+    public int[] getQuantums() {
+        return QUANTUMS.clone();
+    }
 
     // ==== Estado interno por proceso ====
     /** Nivel actual de cada proceso (1, 2 o 3). Por defecto: 1. */
@@ -63,7 +134,7 @@ public class PlanificadorMLFQ implements EstrategiaPlanificacion {
     }
 
     /**
-     * @return el nivel actual (1..NUM_NIVELES) del proceso.
+     * @return el nivel actual (1..numNiveles) del proceso.
      */
     public int getNivel(BCP bcp) {
         return nivelPorProceso.getOrDefault(bcp.getId(), 1);
@@ -75,7 +146,7 @@ public class PlanificadorMLFQ implements EstrategiaPlanificacion {
      */
     public void setNivel(BCP bcp, int nivel) {
         if (nivel < 1) nivel = 1;
-        if (nivel > NUM_NIVELES) nivel = NUM_NIVELES;
+        if (nivel > numNiveles) nivel = numNiveles;
         nivelPorProceso.put(bcp.getId(), nivel);
         secuenciaLlegadaNivel.put(bcp.getId(), ++contadorSecuencia);
     }
@@ -86,7 +157,7 @@ public class PlanificadorMLFQ implements EstrategiaPlanificacion {
      */
     public void bajarNivel(BCP bcp) {
         int actual = getNivel(bcp);
-        int nuevo = (actual < NUM_NIVELES) ? actual + 1 : NUM_NIVELES;
+        int nuevo = (actual < numNiveles) ? actual + 1 : numNiveles;
         setNivel(bcp, nuevo);
     }
 
@@ -129,8 +200,8 @@ public class PlanificadorMLFQ implements EstrategiaPlanificacion {
             }
         }
 
-        // Recorremos los niveles 1..NUM_NIVELES
-        for (int nivel = 1; nivel <= NUM_NIVELES; nivel++) {
+        // Recorremos los niveles 1..numNiveles
+        for (int nivel = 1; nivel <= numNiveles; nivel++) {
             BCP mejor = null;
             long mejorSecuencia = Long.MAX_VALUE;
 
@@ -148,6 +219,29 @@ public class PlanificadorMLFQ implements EstrategiaPlanificacion {
             if (mejor != null) return mejor;
         }
         return null;
+    }
+
+    /**
+     * Expropiacion por prioridad (Stallings 9.2, "Feedback"): si en la cola
+     * hay un proceso en una cola MAS ALTA que la del que esta en CPU (por
+     * ejemplo uno recien llegado a Q1), le quita la CPU. Ademas de esto,
+     * GestorProcesos expulsa por quantum.
+     */
+    @Override
+    public BCP debeExpulsar(BCP enCPU, ListaProcesos listaProcesos) {
+        if (enCPU == null || enCPU.getEstado() != EstadoProceso.RUNNING) return null;
+        BCP candidato = seleccionarSiguiente(listaProcesos);
+        if (candidato != null && getNivel(candidato) < getNivel(enCPU)) {
+            return candidato;
+        }
+        return null;
+    }
+
+    @Override
+    public String motivoExpulsion(BCP enCPU, BCP candidato) {
+        return "MLFQ expulsa a P" + enCPU.getId() + " (" + nombreNivel(getNivel(enCPU))
+                + ") porque P" + candidato.getId() + " esta en una cola mas alta ("
+                + nombreNivel(getNivel(candidato)) + ")";
     }
 
     @Override

@@ -52,6 +52,11 @@ public class VentanaTiemposLlegada extends JDialog {
     private static final int COL_RAFAGA    = 2;
     private static final int COL_LLEGADA   = 3;
     private static final int COL_PRIORIDAD = 4;
+    private static final int COL_NUCLEO    = 5;
+    private static final int COL_BOLETOS   = 6;
+
+    /** Texto del combo de nucleo para "cualquier nucleo libre". */
+    private static final String CUALQUIERA = "Cualquiera";
 
     private static final String UBIC_NEW = "Espera TL=";
     private static final String UBIC_RAM = "En RAM (Cola)";
@@ -69,6 +74,10 @@ public class VentanaTiemposLlegada extends JDialog {
 
     private boolean confirmado = false;
 
+    // Nucleo asignado y boletos de cada proceso (los da GestorProcesos)
+    private java.util.function.IntUnaryOperator nucleoDe = id -> -1;
+    private java.util.function.IntBinaryOperator boletosDe = (id, rafaga) -> rafaga;
+
     /** Constructor legacy (sin pendientes). Mantiene compatibilidad. */
     public VentanaTiemposLlegada(Frame propietario,
                                  List<Nucleo> nucleos,
@@ -81,7 +90,25 @@ public class VentanaTiemposLlegada extends JDialog {
                                  List<Nucleo> nucleos,
                                  List<BCP> procesosEnCola,
                                  List<TrabajoNuevo> trabajosNuevos) {
-        super(propietario, "Configurar Tiempos de Llegada y Prioridades", true);
+        this(propietario, nucleos, procesosEnCola, trabajosNuevos, null, null);
+    }
+
+    /**
+     * Constructor completo: ademas de llegada y prioridad, muestra el nucleo
+     * asignado a cada proceso y sus boletos de Lottery.
+     *
+     * @param nucleoDe  nucleo asignado de cada proceso (-1 = cualquiera)
+     * @param boletosDe boletos de cada proceso, dados el id y la rafaga
+     */
+    public VentanaTiemposLlegada(Frame propietario,
+                                 List<Nucleo> nucleos,
+                                 List<BCP> procesosEnCola,
+                                 List<TrabajoNuevo> trabajosNuevos,
+                                 java.util.function.IntUnaryOperator nucleoDe,
+                                 java.util.function.IntBinaryOperator boletosDe) {
+        super(propietario, "Configurar Tiempos de Llegada, Prioridades y Nucleos", true);
+        if (nucleoDe != null) this.nucleoDe = nucleoDe;
+        if (boletosDe != null) this.boletosDe = boletosDe;
         this.nucleos = nucleos;
         this.procesosEnCola = procesosEnCola;
         this.trabajosNuevos = (trabajosNuevos != null)
@@ -89,7 +116,7 @@ public class VentanaTiemposLlegada extends JDialog {
 
         construirInterfaz();
         pack();
-        setSize(750, 520);
+        setSize(900, 520);
         setResizable(true);
         setLocationRelativeTo(propietario);
     }
@@ -106,18 +133,20 @@ public class VentanaTiemposLlegada extends JDialog {
         panelPrincipal.setBorder(new EmptyBorder(15, 15, 15, 15));
         setContentPane(panelPrincipal);
 
-        JLabel lblTitulo = new JLabel("Asignar Tiempos de Llegada y Prioridades");
+        JLabel lblTitulo = new JLabel("Asignar Tiempos de Llegada, Prioridades y Nucleos");
         lblTitulo.setFont(Paleta.FUENTE_TITULO);
         lblTitulo.setForeground(Paleta.VERDE_OSCURO);
         panelPrincipal.add(lblTitulo, BorderLayout.NORTH);
 
-        // Columnas: Ubicación | ID | Ráfaga | Tiempo Llegada | Prioridad
+        // Columnas: Ubicación | ID | Ráfaga | Tiempo Llegada | Prioridad | Núcleo | Boletos
         modelo = new DefaultTableModel(
-                new Object[]{"Ubicación", "ID", "Ráfaga", "Tiempo Llegada", "Prioridad"}, 0) {
+                new Object[]{"Ubicación", "ID", "Ráfaga", "Tiempo Llegada", "Prioridad",
+                             "Núcleo", "Boletos (Lottery)"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                // La prioridad siempre se puede editar
-                if (column == COL_PRIORIDAD) return true;
+                // Prioridad, nucleo y boletos siempre se pueden editar
+                if (column == COL_PRIORIDAD || column == COL_NUCLEO
+                        || column == COL_BOLETOS) return true;
 
                 // El TL se edita en procesos NEW y en los de la cola de RAM
                 if (column == COL_LLEGADA) {
@@ -138,7 +167,9 @@ public class VentanaTiemposLlegada extends JDialog {
                         bcp.getId(),
                         bcp.getRafaga(),
                         bcp.getTiempoLlegada(),
-                        bcp.getPrioridad()
+                        bcp.getPrioridad(),
+                        textoNucleo(bcp.getId()),
+                        boletosDe.applyAsInt(bcp.getId(), bcp.getRafaga())
                     });
                 }
             }
@@ -151,7 +182,9 @@ public class VentanaTiemposLlegada extends JDialog {
                 bcp.getId(),
                 bcp.getRafaga(),
                 bcp.getTiempoLlegada(),
-                bcp.getPrioridad()
+                bcp.getPrioridad(),
+                textoNucleo(bcp.getId()),
+                boletosDe.applyAsInt(bcp.getId(), bcp.getRafaga())
             });
         }
 
@@ -162,7 +195,9 @@ public class VentanaTiemposLlegada extends JDialog {
                 t.getId(),
                 t.getTamano(),
                 t.getTiempoLlegada(),
-                t.getPrioridad()
+                t.getPrioridad(),
+                textoNucleo(t.getId()),
+                boletosDe.applyAsInt(t.getId(), t.getTamano())
             });
         }
 
@@ -223,8 +258,21 @@ public class VentanaTiemposLlegada extends JDialog {
             }
         });
 
+        // El nucleo se elige de una lista: cualquiera, o una CPU concreta.
+        javax.swing.JComboBox<String> comboNucleo = new javax.swing.JComboBox<>();
+        comboNucleo.addItem(CUALQUIERA);
+        for (Nucleo n : nucleos) comboNucleo.addItem("CPU " + n.getIdNucleo());
+        tabla.getColumnModel().getColumn(COL_NUCLEO)
+                .setCellEditor(new javax.swing.DefaultCellEditor(comboNucleo));
+
         JScrollPane scroll = new JScrollPane(tabla);
         panelPrincipal.add(scroll, BorderLayout.CENTER);
+
+        JLabel lblAyuda = new JLabel("<html>Núcleo: Cualquiera = el proceso va a la primera CPU libre;"
+                + " una CPU concreta = solo esa CPU lo ejecuta (hasta 5 procesos por CPU)."
+                + " Boletos: solo se usan con Lottery.</html>");
+        lblAyuda.setFont(Paleta.FUENTE_LABEL);
+        lblAyuda.setForeground(Paleta.TEXTO_NORMAL);
 
         // Botones
         JButton btnAceptar = new JButton("Aplicar");
@@ -238,7 +286,11 @@ public class VentanaTiemposLlegada extends JDialog {
         panelBotones.add(btnCancelar);
         panelBotones.add(btnAceptar);
 
-        panelPrincipal.add(panelBotones, BorderLayout.SOUTH);
+        JPanel sur = new JPanel(new BorderLayout(0, 8));
+        sur.setOpaque(false);
+        sur.add(lblAyuda, BorderLayout.NORTH);
+        sur.add(panelBotones, BorderLayout.SOUTH);
+        panelPrincipal.add(sur, BorderLayout.SOUTH);
     }
 
     private void confirmar() {
@@ -252,10 +304,14 @@ public class VentanaTiemposLlegada extends JDialog {
             for (int i = 0; i < modelo.getRowCount(); i++) {
                 Integer.parseInt(modelo.getValueAt(i, COL_LLEGADA).toString().trim());
                 Integer.parseInt(modelo.getValueAt(i, COL_PRIORIDAD).toString().trim());
+                if (Integer.parseInt(modelo.getValueAt(i, COL_BOLETOS).toString().trim()) < 1) {
+                    throw new NumberFormatException();
+                }
             }
         } catch (NumberFormatException e) {
             javax.swing.JOptionPane.showMessageDialog(this,
-                    "Los tiempos de llegada y las prioridades deben ser números enteros.",
+                    "Los tiempos de llegada y las prioridades deben ser números enteros,"
+                    + " y los boletos enteros mayores o iguales a 1.",
                     "Error", javax.swing.JOptionPane.ERROR_MESSAGE);
             return;
         }
@@ -279,6 +335,37 @@ public class VentanaTiemposLlegada extends JDialog {
             tiempos[i][1] = tiempo;
         }
         return tiempos;
+    }
+
+    /**
+     * Devuelve el nucleo de cada proceso: [ID, nucleo], con -1 = cualquiera.
+     */
+    public Object[][] getNucleos() {
+        Object[][] res = new Object[modelo.getRowCount()][2];
+        for (int i = 0; i < modelo.getRowCount(); i++) {
+            res[i][0] = Integer.parseInt(modelo.getValueAt(i, COL_ID).toString());
+            String texto = modelo.getValueAt(i, COL_NUCLEO).toString();
+            res[i][1] = texto.startsWith("CPU ") ? Integer.parseInt(texto.substring(4).trim()) : -1;
+        }
+        return res;
+    }
+
+    /**
+     * Devuelve los boletos de Lottery de cada proceso: [ID, boletos].
+     */
+    public Object[][] getBoletos() {
+        Object[][] res = new Object[modelo.getRowCount()][2];
+        for (int i = 0; i < modelo.getRowCount(); i++) {
+            res[i][0] = Integer.parseInt(modelo.getValueAt(i, COL_ID).toString());
+            res[i][1] = Integer.parseInt(modelo.getValueAt(i, COL_BOLETOS).toString().trim());
+        }
+        return res;
+    }
+
+    // Texto del combo de nucleo para el proceso.
+    private String textoNucleo(int id) {
+        int n = nucleoDe.applyAsInt(id);
+        return n < 0 ? CUALQUIERA : "CPU " + n;
     }
 
     /**

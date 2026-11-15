@@ -40,6 +40,14 @@ public class Planificador {
     }
 
     /**
+     * Selecciona el siguiente BCP entre los de la cola indicada (por
+     * ejemplo, solo los que puede ejecutar un nucleo).
+     */
+    public BCP seleccionarDe(ListaProcesos cola) {
+        return estrategia.seleccionarSiguiente(cola);
+    }
+
+    /**
      * @return true si hay algun proceso listo para ejecutar.
      */
     public boolean hayProcesosPendientes() {
@@ -92,6 +100,14 @@ public class Planificador {
      */
     public BCP debeExpulsar(BCP enCPU) {
         return estrategia.debeExpulsar(enCPU, listaProcesos);
+    }
+
+    /**
+     * Igual que {@link #debeExpulsar(BCP)}, pero mirando solo la cola
+     * indicada (los procesos que puede ejecutar el nucleo de enCPU).
+     */
+    public BCP debeExpulsar(BCP enCPU, ListaProcesos cola) {
+        return estrategia.debeExpulsar(enCPU, cola);
     }
 
     /* ==================== RELOJ (Proyecto 2) ==================== */

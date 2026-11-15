@@ -74,8 +74,9 @@ public class GestorProcesos {
 
     private static final int TARDANZA_CREAR     = 1;
     private static final int TARDANZA_ABRIR     = 1;
-    private static final int TARDANZA_LEER      = 2;
-    private static final int TARDANZA_ESCRIBIR  = 2;
+    // Cada INT 21H ocupa 1 s, como cualquier instruccion (requisito 14).
+    private static final int TARDANZA_LEER      = 1;
+    private static final int TARDANZA_ESCRIBIR  = 1;
     private static final int TARDANZA_ELIMINAR  = 1;
     private static final int TARDANZA_DEFAULT   = 1;
 
@@ -112,6 +113,16 @@ public class GestorProcesos {
 
     // Nombre del .asm de cada proceso (solo para mostrar en la GUI)
     private final Map<Integer, String> nombresPorId = new HashMap<>();
+
+    /** Procesos que se pueden asignar a un mismo nucleo (grupos de 5 por CPU). */
+    public static final int PROCESOS_POR_NUCLEO = 5;
+
+    /** Valor de nucleo que significa "cualquier nucleo libre". */
+    public static final int NUCLEO_CUALQUIERA = -1;
+
+    // Nucleo asignado por el usuario a cada proceso (id -> nucleo). Si no
+    // esta, el proceso puede ir a cualquier nucleo libre.
+    private final Map<Integer, Integer> nucleoPorProceso = new java.util.concurrent.ConcurrentHashMap<>();
 
     // === (Diagrama Gantt): ejecuciones por proceso y CPU ===
     private Map<Integer, List<IntervaloEjecucion>> intervalosPorProceso = new HashMap<>();
@@ -207,7 +218,9 @@ public class GestorProcesos {
         } else if (PlanificadorSelfishRR.NOMBRE.equalsIgnoreCase(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorSelfishRR(quantumRR, srrA, srrB));
         } else if ("Lottery".equalsIgnoreCase(algoritmoCPU)) {
-            this.planificador.setEstrategia(new PlanificadorLottery());
+            PlanificadorLottery lottery = new PlanificadorLottery();
+            lottery.setBoletos(bcp -> getBoletos(bcp.getId(), bcp.getRafaga()));
+            this.planificador.setEstrategia(lottery);
         } else if ("Guaranteed".equalsIgnoreCase(algoritmoCPU)) {
             this.planificador.setEstrategia(new PlanificadorGuaranteed());
         } else if ("MLFQ".equalsIgnoreCase(algoritmoCPU)) {
@@ -311,8 +324,10 @@ public class GestorProcesos {
             return ResultadoCarga.enEspera();
         }
 
-        // CASO 2: llega ya (TL = reloj) -> intentar cargarlo en RAM
-        int base = particionador.cargar(id, instrucciones);
+        // CASO 2: llega ya (TL = reloj) -> intentar cargarlo en RAM.
+        // Primero se mira que quede un BCP libre: sin BCP no se pide memoria.
+        int base = (memoria.getBCPsLibres() > 0)
+                ? particionador.cargar(id, instrucciones) : -1;
         if (base != -1) {
             BCP bcp = crearProcesoEnParticion(instrucciones, base, id);
             if (bcp != null) {
@@ -464,6 +479,9 @@ public class GestorProcesos {
             if (obj instanceof Instruccion) instrucciones.add((Instruccion) obj);
         }
 
+        // Sin BCP libre no se pide memoria (evita reservar y devolver).
+        if (memoria.getBCPsLibres() == 0) return null;
+
         int base = particionador.cargar(t.getId(), instrucciones);
         if (base == -1) return null;
 
@@ -601,10 +619,16 @@ public class GestorProcesos {
                     encolarAlFinal(bcp);
                 }
             }
+
+            // MLFQ: un proceso en una cola mas alta (por ejemplo, recien
+            // llegado a Q1) expropia al que corre en una cola mas baja.
+            if (esMLFQ()) {
+                procesarExpulsiones();
+            }
         }
 
         // 4. Delegar la asignación al Gestor de CPUs (que usa el Balanceador)
-        gestorCPUs.balancear(listaProcesos, planificador, relojGlobal);
+        gestorCPUs.balancear(listaProcesos, planificador, relojGlobal, this::puedeEjecutarEn);
 
         // 5. Capturar los RUNNING ANTES de ejecutar el paso.
         //    Los BLOCKED por INT 21H siguen ocupando su nucleo: se marcan en
@@ -779,10 +803,21 @@ public class GestorProcesos {
     }
 
     /**
-     * SRT: recorre los nucleos ocupados y pregunta al planificador si
-     * el proceso en CPU debe ser expulsado por otro de la cola READY.
+     * SRT y Guaranteed: recorre los nucleos ocupados y pregunta al
+     * planificador si el proceso en CPU debe ser expulsado por otro de la
+     * cola READY.
      */
     private void procesarExpulsiones() {
+        // Nucleos libres: el balanceador les dara un proceso en este mismo
+        // paso, asi que un candidato que pueda ir a uno de ellos no necesita
+        // sacar a nadie. Ademas cada candidato provoca a lo sumo una
+        // expulsion (sin esto dos nucleos podian expulsar por el mismo).
+        java.util.List<Integer> libres = new ArrayList<>();
+        for (Nucleo nucleo : gestorCPUs.getNucleos()) {
+            if (!nucleo.estaOcupado()) libres.add(nucleo.getIdNucleo());
+        }
+        java.util.Set<Integer> reclamados = new java.util.HashSet<>();
+
         for (Nucleo nucleo : gestorCPUs.getNucleos()) {
             if (!nucleo.estaOcupado()) continue;
 
@@ -791,14 +826,32 @@ public class GestorProcesos {
             if (enCPU.getEstado() != EstadoProceso.RUNNING) continue;
             if (enCPU.getTiempoRestante() <= 0) continue;
 
-            BCP candidato = planificador.debeExpulsar(enCPU);
+            // Solo compiten los procesos que este nucleo puede ejecutar.
+            ListaProcesos elegibles = logica.cpu.Balanceador.filtrar(
+                    listaProcesos, nucleo.getIdNucleo(), this::puedeEjecutarEn);
+            BCP candidato = planificador.debeExpulsar(enCPU, elegibles);
             if (candidato == null) continue;
+            if (!reclamados.add(candidato.getId())) continue;   // ya tiene lugar
 
-            anunciarContexto("CPU " + nucleo.getIdNucleo() + ": " + planificador.getNombreEstrategia()
-                + " expulsa a P" + enCPU.getId()
-                + " (le quedan " + enCPU.getTiempoRestante() + " s) porque P" + candidato.getId()
-                + " tiene menos (" + candidato.getTiempoRestante() + " s)");
+            Integer libre = null;
+            for (Integer n : libres) {
+                if (puedeEjecutarEn(candidato, n)) { libre = n; break; }
+            }
+            if (libre != null) {
+                libres.remove(libre);   // ira a ese nucleo libre
+                continue;
+            }
 
+            String motivo = planificador.getEstrategia().motivoExpulsion(enCPU, candidato);
+            if (motivo == null) {
+                motivo = planificador.getNombreEstrategia() + " expulsa a P" + enCPU.getId()
+                    + " (le quedan " + enCPU.getTiempoRestante() + " s) porque P" + candidato.getId()
+                    + " tiene menos (" + candidato.getTiempoRestante() + " s)";
+            }
+            anunciarContexto("CPU " + nucleo.getIdNucleo() + ": " + motivo);
+
+            // En MLFQ el expulsado conserva su cola y lo que le queda de
+            // quantum: asi se reproduce la fila "FB q = 2^i" de la Tabla 9.5.
             nucleo.expulsarProceso();
             listaProcesos.agregar(enCPU);
         }
@@ -1051,6 +1104,97 @@ public class GestorProcesos {
 
     /** Nombre del .asm de un proceso, o null si no se conoce. */
     public String getNombreArchivo(int id) { return nombresPorId.get(id); }
+
+    /* ================== NUCLEO DE CADA PROCESO ================== */
+
+    /**
+     * @return el nucleo asignado al proceso, o NUCLEO_CUALQUIERA si puede ir
+     *         a cualquier nucleo libre.
+     */
+    public int getNucleoAsignado(int idProceso) {
+        return nucleoPorProceso.getOrDefault(idProceso, NUCLEO_CUALQUIERA);
+    }
+
+    /** @return si el proceso puede ejecutarse en el nucleo. */
+    public boolean puedeEjecutarEn(BCP bcp, int idNucleo) {
+        int asignado = getNucleoAsignado(bcp.getId());
+        return asignado == NUCLEO_CUALQUIERA || asignado == idNucleo;
+    }
+
+    /**
+     * Asigna el proceso a un nucleo (o a cualquiera con NUCLEO_CUALQUIERA).
+     * Cada nucleo admite hasta PROCESOS_POR_NUCLEO procesos asignados que no
+     * hayan terminado (grupos de 5 por CPU). Si el proceso esta ahora en
+     * otro nucleo, termina su turno alli y despues solo vuelve al asignado.
+     *
+     * @return null si se asigno, o el motivo por el que no se pudo
+     */
+    public String asignarNucleo(int idProceso, int idNucleo) {
+        if (idNucleo == NUCLEO_CUALQUIERA) {
+            nucleoPorProceso.remove(idProceso);
+            return null;
+        }
+        if (idNucleo < 0 || idNucleo >= gestorCPUs.getCantidadNucleos()) {
+            return "P" + idProceso + ": la CPU " + idNucleo + " no existe (hay "
+                    + gestorCPUs.getCantidadNucleos() + ").";
+        }
+        if (getNucleoAsignado(idProceso) == idNucleo) return null;
+
+        int asignados = 0;
+        for (Map.Entry<Integer, Integer> e : nucleoPorProceso.entrySet()) {
+            if (e.getValue() == idNucleo && !haTerminado(e.getKey())) asignados++;
+        }
+        if (asignados >= PROCESOS_POR_NUCLEO) {
+            return "P" + idProceso + ": la CPU " + idNucleo + " ya tiene "
+                    + PROCESOS_POR_NUCLEO + " procesos asignados.";
+        }
+        nucleoPorProceso.put(idProceso, idNucleo);
+        anunciarContexto("P" + idProceso + " queda asignado a la CPU " + idNucleo);
+        return null;
+    }
+
+    /* ================== PARAMETROS DE MLFQ Y LOTTERY ================== */
+
+    // Boletos de Lottery que el usuario dio a cada proceso (id -> boletos).
+    // Si no esta, el proceso tiene tantos boletos como su rafaga.
+    private final Map<Integer, Integer> boletosPorProceso = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Aplica los parametros de MLFQ y Lottery. Si el algoritmo activo es uno
+     * de ellos, se vuelve a crear con estos parametros (se llama al armar el
+     * sistema, antes de cargar procesos).
+     *
+     * @param quantumsMLFQ   quantum de cada cola de MLFQ (Q1 primero)
+     * @param semillaLottery semilla de los sorteos; 0 = distinta en cada ejecucion
+     */
+    public void configurarParametrosCPU(int[] quantumsMLFQ, long semillaLottery) {
+        if (esMLFQ() && quantumsMLFQ != null && quantumsMLFQ.length > 0) {
+            planificador.setEstrategia(new PlanificadorMLFQ(quantumsMLFQ));
+        }
+        if (esLottery()) {
+            PlanificadorLottery lottery = (semillaLottery != 0)
+                    ? new PlanificadorLottery(semillaLottery) : new PlanificadorLottery();
+            lottery.setBoletos(bcp -> getBoletos(bcp.getId(), bcp.getRafaga()));
+            planificador.setEstrategia(lottery);
+        }
+    }
+
+    /** @return los boletos del proceso (por defecto, su rafaga). */
+    public int getBoletos(int idProceso, int rafaga) {
+        return boletosPorProceso.getOrDefault(idProceso, Math.max(1, rafaga));
+    }
+
+    /** Fija los boletos de Lottery del proceso (al menos 1). */
+    public void setBoletos(int idProceso, int boletos) {
+        boletosPorProceso.put(idProceso, Math.max(1, boletos));
+    }
+
+    private boolean haTerminado(int idProceso) {
+        for (BCPTerminado t : procesosTerminados) {
+            if (t.getId() == idProceso) return true;
+        }
+        return false;
+    }
 
     public Disco getDisco() { return disco; }
     public EstrategiaMemoria getEstrategiaMemoria() { return particionador; }
