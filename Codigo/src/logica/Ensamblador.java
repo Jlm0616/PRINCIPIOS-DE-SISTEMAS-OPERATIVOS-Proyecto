@@ -148,7 +148,7 @@ public class Ensamblador {
 
         try (Scanner lector = new Scanner(archivoEnsamblador)) {
             while (lector.hasNextLine()) {
-                String linea = lector.nextLine().trim();
+                String linea = quitarComentario(lector.nextLine()).trim();
 
                 if (linea.isEmpty()) {
                     continue;
