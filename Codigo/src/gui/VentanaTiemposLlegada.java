@@ -2,6 +2,7 @@ package gui;
 
 import logica.cpu.Nucleo;
 import logica.TrabajoNuevo;
+import modelo.ProgramaPendiente;
 import modelo.BCP;
 
 import javax.swing.JDialog;
@@ -60,6 +61,7 @@ public class VentanaTiemposLlegada extends JDialog {
 
     private static final String UBIC_NEW = "Espera TL=";
     private static final String UBIC_RAM = "En RAM (Cola)";
+    private static final String UBIC_PENDIENTE = "Pendiente TL=";
 
     // Color para procesos pendientes (fondo amarillo claro)
     private static final Color COLOR_PENDIENTE = new Color(0xFF, 0xF3, 0xCD);
@@ -71,6 +73,7 @@ public class VentanaTiemposLlegada extends JDialog {
     private List<Nucleo> nucleos;
     private List<BCP> procesosEnCola;
     private List<TrabajoNuevo> trabajosNuevos;
+    private List<ProgramaPendiente> programasPendientes;
 
     private boolean confirmado = false;
 
@@ -90,7 +93,8 @@ public class VentanaTiemposLlegada extends JDialog {
                                  List<Nucleo> nucleos,
                                  List<BCP> procesosEnCola,
                                  List<TrabajoNuevo> trabajosNuevos) {
-        this(propietario, nucleos, procesosEnCola, trabajosNuevos, null, null);
+        this(propietario, nucleos, procesosEnCola, trabajosNuevos,
+                new ArrayList<ProgramaPendiente>(), null, null);
     }
 
     /**
@@ -106,6 +110,18 @@ public class VentanaTiemposLlegada extends JDialog {
                                  List<TrabajoNuevo> trabajosNuevos,
                                  java.util.function.IntUnaryOperator nucleoDe,
                                  java.util.function.IntBinaryOperator boletosDe) {
+        this(propietario, nucleos, procesosEnCola, trabajosNuevos,
+                new ArrayList<ProgramaPendiente>(), nucleoDe, boletosDe);
+    }
+
+    /** Constructor con programas pendientes de llegada, sin BCP, RAM ni swap. */
+    public VentanaTiemposLlegada(Frame propietario,
+                                  List<Nucleo> nucleos,
+                                  List<BCP> procesosEnCola,
+                                  List<TrabajoNuevo> trabajosNuevos,
+                                  List<ProgramaPendiente> programasPendientes,
+                                  java.util.function.IntUnaryOperator nucleoDe,
+                                  java.util.function.IntBinaryOperator boletosDe) {
         super(propietario, "Configurar Tiempos de Llegada, Prioridades y Nucleos", true);
         if (nucleoDe != null) this.nucleoDe = nucleoDe;
         if (boletosDe != null) this.boletosDe = boletosDe;
@@ -113,6 +129,9 @@ public class VentanaTiemposLlegada extends JDialog {
         this.procesosEnCola = procesosEnCola;
         this.trabajosNuevos = (trabajosNuevos != null)
                 ? trabajosNuevos : new ArrayList<TrabajoNuevo>();
+
+        this.programasPendientes = programasPendientes != null
+                ? programasPendientes : new ArrayList<ProgramaPendiente>();
 
         construirInterfaz();
         pack();
@@ -124,7 +143,8 @@ public class VentanaTiemposLlegada extends JDialog {
     /** true si el TL de una fila con esta ubicacion se puede editar. */
     private static boolean tlEditable(String ubicacion) {
         return ubicacion != null
-                && (ubicacion.startsWith(UBIC_NEW) || ubicacion.equals(UBIC_RAM));
+                && (ubicacion.startsWith(UBIC_NEW) || ubicacion.startsWith(UBIC_PENDIENTE)
+                 || ubicacion.equals(UBIC_RAM));
     }
 
     private void construirInterfaz() {
@@ -201,6 +221,19 @@ public class VentanaTiemposLlegada extends JDialog {
             });
         }
 
+        // 4. Programas pendientes: aun no tienen BCP ni ocupan RAM o swap.
+        for (ProgramaPendiente pendiente : programasPendientes) {
+            modelo.addRow(new Object[]{
+                UBIC_PENDIENTE + pendiente.getTiempoLlegada(),
+                pendiente.getId(),
+                pendiente.getInstrucciones().size(),
+                pendiente.getTiempoLlegada(),
+                pendiente.getPrioridad(),
+                textoNucleo(pendiente.getId()),
+                boletosDe.applyAsInt(pendiente.getId(), pendiente.getInstrucciones().size())
+            });
+        }
+
         tabla = new JTable(modelo);
         tabla.setFont(Paleta.FUENTE_MONO);
         tabla.setRowHeight(25);
@@ -228,7 +261,7 @@ public class VentanaTiemposLlegada extends JDialog {
                                 c.setForeground(Paleta.TEXTO_NORMAL);
                                 setFont(Paleta.FUENTE_MONO);
                             }
-                        } else if (ubicacion.startsWith(UBIC_NEW)) {
+                        } else if ((ubicacion.startsWith(UBIC_NEW) || ubicacion.startsWith(UBIC_PENDIENTE))) {
                             c.setBackground(COLOR_PENDIENTE);
                             c.setForeground(Paleta.TEXTO_NORMAL);
                             setFont(Paleta.FUENTE_MONO);

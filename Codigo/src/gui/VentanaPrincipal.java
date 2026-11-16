@@ -485,6 +485,7 @@ public class VentanaPrincipal extends JFrame {
 
         int cargadosExito = 0;
         int enNuevo = 0;
+        int pendientes = 0;
         int conError = 0;
 
         for (File archivo : archivos) {
@@ -493,6 +494,7 @@ public class VentanaPrincipal extends JFrame {
                 case 1: cargadosExito++; break;
                 case 0: conError++; break;
                 case -1: enNuevo++; break;
+                case -2: pendientes++; break;
             }
         }
 
@@ -502,12 +504,18 @@ public class VentanaPrincipal extends JFrame {
             panelPantalla.agregarMensaje(">> Archivos seleccionados: " + archivos.length);
             panelPantalla.agregarMensaje(">> Cargados en RAM:        " + cargadosExito);
             panelPantalla.agregarMensaje(">> En NEW (swap):          " + enNuevo);
+            panelPantalla.agregarMensaje(">> Pendientes de llegada:  " + pendientes);
             panelPantalla.agregarMensaje(">> Con error:              " + conError);
             panelPantalla.agregarMensaje(">> ============================");
             panelPantalla.agregarMensaje("");
         }
 
         refrescarTodo();
+
+        // Mostrar la ventana de asignacion tras cargar archivos validos.
+        if (cargadosExito + enNuevo + pendientes > 0) {
+            panelProcesos.abrirVentanaTiempos();
+        }
     }
 
     // Carga un único archivo .asm. Devuelve 1=OK (en RAM), 0=error, -1=en NEW (swap).
@@ -533,6 +541,9 @@ public class VentanaPrincipal extends JFrame {
                         + resultado.getMensajeError(),
                         "Archivo invalido", JOptionPane.ERROR_MESSAGE);
                 return 0;
+
+            case PENDIENTE:
+                return -2;
 
             case EN_ESPERA:
                 // El proceso queda en NEW (guardado en swap, sin BCP). El
@@ -970,7 +981,8 @@ public class VentanaPrincipal extends JFrame {
                 gestor.getListaProcesos(),
                 gestor.getGestorCPUs().getNucleos(),
                 gestor.getProcesosBloqueadosInput(),
-                gestor.getTrabajosNuevos());
+                gestor.getTrabajosNuevos(),
+                gestor.getProgramasPendientes());
 
         panelMemoria.actualizar(memoria, irsPorCPU, particionador);
         panelDisco.actualizar(disco);

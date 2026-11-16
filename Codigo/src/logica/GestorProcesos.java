@@ -21,6 +21,7 @@ import modelo.EstadoProceso;
 import modelo.Instruccion;
 import modelo.Memoria;
 import modelo.Disco;
+import modelo.ProgramaPendiente;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -62,6 +63,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *  - Un proceso es un TrabajoNuevo O un BCP, nunca los dos a la vez.
  *  - Los trabajos que ya llegaron pero no caben en RAM tambien esperan en
  *    NEW (en swap) hasta que haya particion libre.
+ *
+ * ACTUALIZACION:
+ *  - Los programas con TL futuro permanecen en pendientesPorLlegar.
+ *  - Mientras estan pendientes no tienen BCP ni ocupan RAM o swap.
+ *  - Al alcanzar su llegada, pasan a READY si hay memoria disponible.
+ *  - Si ya llegaron y no hay memoria, pasan a NEW en swap.
  */
 public class GestorProcesos {
 
@@ -110,6 +117,11 @@ public class GestorProcesos {
     // CopyOnWriteArrayList: la GUI lee esta lista desde otro hilo mientras
     // la ejecucion automatica la modifica.
     private final List<TrabajoNuevo> trabajosNuevos = new CopyOnWriteArrayList<>();
+
+    // Programas cuyo tiempo de llegada aun no se cumple.
+    // No tienen BCP, no ocupan RAM ni swap y no aparecen en PanelProcesos.
+    private final List<ProgramaPendiente> pendientesPorLlegar =
+            new CopyOnWriteArrayList<>();
 
     // Nombre del .asm de cada proceso (solo para mostrar en la GUI)
     private final Map<Integer, String> nombresPorId = new HashMap<>();
@@ -307,21 +319,20 @@ public class GestorProcesos {
         // TL aleatorio en [relojGlobal, relojGlobal + 6]
         int tiempoLlegada = randomizador.generarTiempoLlegada(relojGlobal);
 
-        // CASO 1: llega en el futuro -> NEW. Va directo al swap: no se le
-        // reserva particion ni BCP, porque todavia no ha entrado al sistema.
+        // CASO 1: llega en el futuro -> queda PENDIENTE.
+        // No se reserva particion, BCP ni espacio en swap.
         if (tiempoLlegada > relojGlobal) {
-            String error = guardarEnSwap(instrucciones, id, nombreArchivo,
-                    tiempoLlegada, PRIORIDAD_DEFAULT, false);
-            if (error != null) {
-                return ResultadoCarga.error(
-                    "El proceso llega en t=" + tiempoLlegada + " y debe esperar en "
-                    + "memoria virtual (swap), pero no se pudo guardar:\n" + error);
-            }
+            pendientesPorLlegar.add(new ProgramaPendiente(
+                    id, nombreArchivo, tiempoLlegada,
+                    PRIORIDAD_DEFAULT, instrucciones));
+
             nombresPorId.put(id, nombreArchivo);
             siguienteId++;
-            anunciar(">> ID " + id + " (" + nombreArchivo + ") en NEW: llega en t="
-                    + tiempoLlegada + ", esperando en swap.");
-            return ResultadoCarga.enEspera();
+
+            anunciar(">> ID " + id + " (" + nombreArchivo
+                    + ") pendiente de llegada en t=" + tiempoLlegada + ".");
+
+            return ResultadoCarga.pendiente(id);
         }
 
         // CASO 2: llega ya (TL = reloj) -> intentar cargarlo en RAM.
@@ -451,6 +462,78 @@ public class GestorProcesos {
     }
 
     /**
+     * Devuelve un proceso READY al estado pendiente cuando su nuevo TL
+     * es futuro. Libera la particion y el BCP sin ocupar swap.
+     *
+     * @return true si el proceso quedo pendiente
+     */
+    private boolean enviarAPendiente(BCP bcp) {
+        int id = bcp.getId();
+        String nombre = nombresPorId.getOrDefault(id, "proceso" + id + ".asm");
+
+        // Se conserva una copia de sus instrucciones antes de liberar la RAM.
+        List<Instruccion> instrucciones = particionador.leerImagen(id);
+
+        if (instrucciones == null || instrucciones.isEmpty()) {
+            return false;
+        }
+
+        pendientesPorLlegar.add(new ProgramaPendiente(
+                id, nombre, bcp.getTiempoLlegada(),
+                bcp.getPrioridad(), instrucciones));
+
+        listaProcesos.sacar(bcp);
+        particionador.liberar(id);
+        memoria.liberarBloqueBCP(bcp.getDireccionBase());
+
+        System.out.println("[PENDIENTE] Proceso " + id
+                + " vuelve a pendiente (sin BCP, RAM ni swap).");
+
+        return true;
+    }
+
+    /**
+     * Devuelve un trabajo NEW a la lista de pendientes cuando el TL
+     * se modifica a un instante futuro. Libera su espacio de swap.
+     */
+    private boolean enviarNuevoAPendiente(TrabajoNuevo t) {
+        Object[] instruccionesArr =
+                disco.leerBloqueSwap(t.getDirSwap(), t.getTamano());
+
+        List<Instruccion> instrucciones = new ArrayList<>();
+
+        for (Object obj : instruccionesArr) {
+            if (obj instanceof Instruccion) {
+                instrucciones.add((Instruccion) obj);
+            }
+        }
+
+        if (instrucciones.size() != t.getTamano()) {
+            return false;
+        }
+
+        pendientesPorLlegar.add(new ProgramaPendiente(
+                t.getId(), t.getNombre(),
+                t.getTiempoLlegada(), t.getPrioridad(),
+                instrucciones));
+
+        disco.liberarBloqueSwap(t.getDirSwap(), t.getTamano());
+
+        if (t.getNombre() != null
+                && disco.existe(t.getNombre(), Disco.TIPO_ASM)) {
+            disco.eliminarDelIndice(t.getNombre(), Disco.TIPO_ASM);
+        }
+
+        listaDeTrabajos.eliminar(t.getNombre(), t.getDirSwap());
+        trabajosNuevos.remove(t);
+
+        System.out.println("[PENDIENTE] Proceso " + t.getId()
+                + " vuelve a pendiente (sin BCP, RAM ni swap).");
+
+        return true;
+    }
+
+    /**
      * Un proceso solo puede volver a NEW si esta en la cola de listos, sin
      * haber ejecutado nada.
      */
@@ -545,9 +628,90 @@ public class GestorProcesos {
         return admitidos;
     }
 
+    /**
+     * Admite los programas pendientes cuyo tiempo de llegada ya paso.
+     * Si hay RAM y BCP disponible pasan a READY; si no, pasan a NEW.
+     *
+     * El parametro incluirTiempoActual se usa al editar el TL en la GUI.
+     */
+    private List<BCP> admitirPendientes(boolean incluirTiempoActual) {
+        List<BCP> admitidos = new ArrayList<>();
+        List<ProgramaPendiente> orden = new ArrayList<>(pendientesPorLlegar);
+
+        orden.sort(Comparator
+                .comparingInt(ProgramaPendiente::getTiempoLlegada)
+                .thenComparingInt(ProgramaPendiente::getId));
+
+        for (ProgramaPendiente pendiente : orden) {
+            int tiempoLlegada = pendiente.getTiempoLlegada();
+
+            if (incluirTiempoActual) {
+                if (tiempoLlegada > relojGlobal) continue;
+            } else {
+                // El paso N cubre N-1 a N. TL=t ejecuta desde t+1.
+                if (tiempoLlegada >= relojGlobal) continue;
+            }
+
+            int id = pendiente.getId();
+            List<Instruccion> instrucciones = pendiente.getInstrucciones();
+
+            int base = (memoria.getBCPsLibres() > 0)
+                    ? particionador.cargar(id, instrucciones) : -1;
+
+            if (base != -1) {
+                BCP bcp = crearProcesoEnParticion(instrucciones, base, id);
+
+                if (bcp != null) {
+                    bcp.setTiempoLlegada(tiempoLlegada);
+                    bcp.setPrioridad(pendiente.getPrioridad());
+
+                    copiarAsmAArchivos(pendiente.getNombreArchivo(), instrucciones);
+
+                    pendientesPorLlegar.remove(pendiente);
+
+                    // Se saca temporalmente para que ejecutarUnPaso
+                    // conserve las reglas originales de cada planificador.
+                    listaProcesos.sacar(bcp);
+                    admitidos.add(bcp);
+
+                    System.out.println("[RELOJ " + relojGlobal + "] Proceso "
+                            + id + " PENDIENTE -> READY.");
+                    continue;
+                }
+
+                particionador.liberar(id);
+            }
+
+            // El programa ya llego, pero no hay RAM: usar NEW en swap.
+            String error = guardarEnSwap(instrucciones, id,
+                    pendiente.getNombreArchivo(), tiempoLlegada,
+                    pendiente.getPrioridad(), false);
+
+            if (error == null) {
+                pendientesPorLlegar.remove(pendiente);
+
+                System.out.println("[RELOJ " + relojGlobal + "] Proceso "
+                        + id + " PENDIENTE -> NEW (swap).");
+            } else {
+                System.out.println("[RELOJ " + relojGlobal + "] Proceso "
+                        + id + " sigue pendiente: " + error);
+            }
+        }
+
+        return admitidos;
+    }
+
     private TrabajoNuevo buscarTrabajoNuevo(int id) {
         for (TrabajoNuevo t : trabajosNuevos) {
             if (t.getId() == id) return t;
+        }
+        return null;
+    }
+
+    /** Busca un programa que aun no tiene BCP ni ocupa RAM o swap. */
+    private ProgramaPendiente buscarProgramaPendiente(int id) {
+        for (ProgramaPendiente pendiente : pendientesPorLlegar) {
+            if (pendiente.getId() == id) return pendiente;
         }
         return null;
     }
@@ -568,6 +732,10 @@ public class GestorProcesos {
         //    un segundo antes de llegar.
         //    Aqui se CREA el BCP de los procesos que salen de NEW.
         List<BCP> llegadosAhora = admitirLlegados();
+
+        // Tambien se admiten los programas pendientes cuyo TL ya paso.
+        // Se usa el mismo orden de incorporacion a READY.
+        llegadosAhora.addAll(admitirPendientes(false));
 
         // 3. Si NO usa quantum: agregar llegadas directo + expulsiones SRT
         if (!usaQuantum()) {
@@ -1059,6 +1227,12 @@ public class GestorProcesos {
     }
 
     public boolean hayProcesosActivos() {
+        // Los programas pendientes mantienen activo el reloj simulado.
+        // Todavia no tienen BCP ni ocupan RAM o swap.
+        if (!pendientesPorLlegar.isEmpty()) {
+            return true;
+        }
+
         // Un proceso en NEW cuyo TL aun no pasa es trabajo pendiente.
         // (Uno que ya llego pero no cabe en RAM no cuenta por si solo:
         // se reactiva al terminar otro proceso; si no hay ninguno, no
@@ -1101,6 +1275,11 @@ public class GestorProcesos {
 
     /** Procesos en estado NEW (sin BCP), en el orden en que se registraron. */
     public List<TrabajoNuevo> getTrabajosNuevos() { return new ArrayList<>(trabajosNuevos); }
+
+    /** Copia de los programas pendientes de llegada, sin BCP, RAM ni swap. */
+    public List<ProgramaPendiente> getProgramasPendientes() {
+        return new ArrayList<>(pendientesPorLlegar);
+    }
 
     /** Nombre del .asm de un proceso, o null si no se conoce. */
     public String getNombreArchivo(int id) { return nombresPorId.get(id); }
@@ -1249,17 +1428,47 @@ public class GestorProcesos {
      *
      * La ventana manda una fila por proceso (tambien los que no se
      * tocaron), asi que un TL igual al actual no debe provocar cambios.
+     *
+     * ACTUALIZACION:
+     *  - TL futuro: el programa pasa a pendientes, sin BCP, RAM ni swap.
+     *  - TL actual o pasado: el programa pendiente puede ser admitido.
      */
     public void actualizarTiemposLlegada(Object[][] tiempos) {
+        if (tiempos == null) return;
+
         for (Object[] t : tiempos) {
             int id = (Integer) t[0];
             int tiempo = (Integer) t[1];
 
+            // Caso nuevo: el programa aun esta pendiente de llegada.
+            ProgramaPendiente pendiente = buscarProgramaPendiente(id);
+            if (pendiente != null) {
+                pendiente.setTiempoLlegada(tiempo);
+
+                if (tiempo <= relojGlobal) {
+                    // Al editar el TL, admitir inmediatamente si es posible.
+                    List<BCP> admitidos = admitirPendientes(true);
+                    for (BCP admitido : admitidos) {
+                        listaProcesos.agregar(admitido);
+                    }
+                }
+                continue;
+            }
+
             // Caso 1: el proceso esta en NEW (no tiene BCP)
             TrabajoNuevo nuevo = buscarTrabajoNuevo(id);
             if (nuevo != null) {
+                int tlAnterior = nuevo.getTiempoLlegada();
                 nuevo.setTiempoLlegada(tiempo);
-                if (tiempo <= relojGlobal) {
+
+                if (tiempo > relojGlobal) {
+                    if (enviarNuevoAPendiente(nuevo)) {
+                        System.out.println("[RELOJ] Proceso " + id
+                            + " pasa a pendiente (llega en t=" + tiempo + ")");
+                    } else {
+                        nuevo.setTiempoLlegada(tlAnterior);
+                    }
+                } else {
                     BCP bcp = admitirTrabajo(nuevo);
                     if (bcp != null) {
                         System.out.println("[RELOJ] Proceso " + id
@@ -1286,11 +1495,12 @@ public class GestorProcesos {
                     continue;
                 }
                 bcp.setTiempoLlegada(tiempo);
-                if (enviarANuevo(bcp)) {
+
+                if (enviarAPendiente(bcp)) {
                     System.out.println("[RELOJ] Proceso " + id
-                        + " pasa a NEW (llega en t=" + tiempo + ")");
+                        + " pasa a pendiente (llega en t=" + tiempo + ")");
                 } else {
-                    // Sin espacio en swap: se queda en RAM como estaba
+                    // Sin instrucciones disponibles: se queda en RAM como estaba
                     bcp.setTiempoLlegada(tlAnterior);
                 }
             } else {
@@ -1312,6 +1522,13 @@ public class GestorProcesos {
         for (Object[] fila : prioridades) {
             int id = (Integer) fila[0];
             int prioridad = (Integer) fila[1];
+
+            // Los programas pendientes tambien conservan su prioridad.
+            ProgramaPendiente pendiente = buscarProgramaPendiente(id);
+            if (pendiente != null) {
+                pendiente.setPrioridad(prioridad);
+                continue;
+            }
 
             TrabajoNuevo nuevo = buscarTrabajoNuevo(id);
             if (nuevo != null) {

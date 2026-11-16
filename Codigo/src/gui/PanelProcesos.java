@@ -4,6 +4,7 @@ import modelo.BCP;
 import modelo.EstadoProceso;
 import logica.ListaProcesos;
 import logica.TrabajoNuevo;
+import modelo.ProgramaPendiente;
 import logica.cpu.Nucleo;
 
 import javax.swing.JPanel;
@@ -60,6 +61,7 @@ public class PanelProcesos extends JPanel {
 
     private List<BCP> listaProcesosTemporal = new ArrayList<>();
     private List<TrabajoNuevo> trabajosNuevosTemporal = new ArrayList<>();
+    private List<ProgramaPendiente> programasPendientesTemporal = new ArrayList<>();
     
     private String algoritmoActual = ""; // <-- NUEVO
 
@@ -217,7 +219,7 @@ public class PanelProcesos extends JPanel {
         add(panelSur, gbcSur);
     }
 
-    private void abrirVentanaTiempos() {
+    public void abrirVentanaTiempos() {
         if (nucleosActuales == null || nucleosActuales.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                     "No hay CPUs inicializadas.",
@@ -230,6 +232,7 @@ public class PanelProcesos extends JPanel {
                 nucleosActuales,
                 listaProcesosTemporal,
                 trabajosNuevosTemporal,
+                programasPendientesTemporal,
                 nucleoDe,
                 boletosDe
         );
@@ -266,11 +269,15 @@ public class PanelProcesos extends JPanel {
     public void actualizarLista(ListaProcesos listaProcesos,
                                 List<Nucleo> nucleos,
                                 List<BCP> procesosBloqueadosInput,
-                                List<TrabajoNuevo> trabajosNuevos) {
+                                List<TrabajoNuevo> trabajosNuevos,
+                                List<ProgramaPendiente> programasPendientes) {
         this.nucleosActuales = nucleos;
         this.listaProcesosTemporal = listaProcesos != null ? listaProcesos.toList() : new ArrayList<>();
         this.trabajosNuevosTemporal = trabajosNuevos != null
                 ? new ArrayList<>(trabajosNuevos) : new ArrayList<>();
+
+        this.programasPendientesTemporal = programasPendientes != null
+                ? new ArrayList<>(programasPendientes) : new ArrayList<>();
 
         modeloProcesos.setRowCount(0);
         Set<Integer> idsAgregados = new HashSet<>();

@@ -1,47 +1,69 @@
+
 package logica;
 
 import modelo.BCP;
 
 /**
- * Resultado de intentar cargar un programa .asm como proceso nuevo.
+ * Resultado de intentar cargar un programa .asm.
  *
- * Tres desenlaces posibles:
- *   - EXITO:     el proceso se creó y quedó en ListaDeTrabajos (READY).
- *   - ERROR:     el archivo no es válido o no cabe en ninguna partición.
- *   - EN_ESPERA: el archivo es válido, pero no hay partición libre
- *                por ahora; se guardó para reintentar después.
+ * EXITO:     Proceso admitido en RAM (READY).
+ * ERROR:     No se pudo cargar el programa.
+ * EN_ESPERA: Proceso en NEW, almacenado en swap.
+ * PENDIENTE: Programa con tiempo de llegada futuro.
+ *            No ocupa RAM, BCP ni swap.
+ *            No aparece en el panel de procesos.
  */
 public class ResultadoCarga {
 
-    public enum Estado { EXITO, ERROR, EN_ESPERA }
+    public enum Estado {
+        EXITO,
+        ERROR,
+        EN_ESPERA,
+        PENDIENTE
+    }
 
     private final Estado estado;
-    private final BCP bcp;           // solo si EXITO
-    private final String mensajeError; // solo si ERROR
+    private final BCP bcp;
+    private final String mensajeError;
+    private final int idPendiente;
 
-    // Constructor privado: usar los factories exito/error/enEspera.
-    private ResultadoCarga(Estado estado, BCP bcp, String mensajeError) {
+    private ResultadoCarga(Estado estado, BCP bcp,
+                           String mensajeError, int idPendiente) {
         this.estado = estado;
         this.bcp = bcp;
         this.mensajeError = mensajeError;
+        this.idPendiente = idPendiente;
     }
 
-    // Crea un resultado exitoso con el BCP creado.
     public static ResultadoCarga exito(BCP bcp) {
-        return new ResultadoCarga(Estado.EXITO, bcp, null);
+        return new ResultadoCarga(Estado.EXITO, bcp, null, -1);
     }
 
-    // Crea un resultado de error con el mensaje indicado.
     public static ResultadoCarga error(String mensaje) {
-        return new ResultadoCarga(Estado.ERROR, null, mensaje);
+        return new ResultadoCarga(Estado.ERROR, null, mensaje, -1);
     }
 
-    // Crea un resultado en espera (archivo válido, sin partición libre).
     public static ResultadoCarga enEspera() {
-        return new ResultadoCarga(Estado.EN_ESPERA, null, null);
+        return new ResultadoCarga(Estado.EN_ESPERA, null, null, -1);
     }
 
-    public Estado getEstado() { return estado; }
-    public BCP getBcp() { return bcp; }
-    public String getMensajeError() { return mensajeError; }
+    public static ResultadoCarga pendiente(int idProceso) {
+        return new ResultadoCarga(Estado.PENDIENTE, null, null, idProceso);
+    }
+
+    public Estado getEstado() {
+        return estado;
+    }
+
+    public BCP getBcp() {
+        return bcp;
+    }
+
+    public String getMensajeError() {
+        return mensajeError;
+    }
+
+    public int getIdPendiente() {
+        return idPendiente;
+    }
 }
