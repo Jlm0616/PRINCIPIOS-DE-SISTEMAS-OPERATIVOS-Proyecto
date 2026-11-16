@@ -794,8 +794,6 @@ public class VentanaPrincipal extends JFrame {
         // Al reiniciar el sistema, el error de la ejecucion anterior ya no
         // aplica: se limpia para que la proxima ejecucion empiece en blanco.
         gestor.limpiarErrorEjecucion();
-        // Tambien se limpia el historial acumulado de ejecuciones.
-        historial.limpiar();
         configurarCallbacks();
         panelPantalla.limpiar();
         panelContexto.limpiar();
