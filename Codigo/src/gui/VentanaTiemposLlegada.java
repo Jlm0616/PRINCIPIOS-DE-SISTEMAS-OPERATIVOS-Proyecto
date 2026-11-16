@@ -38,9 +38,8 @@ import java.util.List;
  * PROYECTO 2:
  *  - Los procesos en NEW vienen como TrabajoNuevo (no tienen BCP): su
  *    rafaga es el tamano de su programa en swap.
- *  - El Tiempo de Llegada es editable si el proceso esta en NEW o en la
- *    cola de RAM (sin haber ejecutado). Los que estan en CPU ya no se
- *    pueden cambiar.
+ *  - El Tiempo de Llegada solo es editable para NEW o pendientes de llegada.
+ *    Los procesos admitidos en RAM o CPU no pueden cambiar su llegada.
  *  - Si el nuevo TL es futuro, GestorProcesos devuelve el proceso de RAM
  *    a NEW (le destruye el BCP y lo manda al swap).
  *  - Si el nuevo TL es <= relojGlobal, GestorProcesos le crea el BCP, lo
@@ -379,14 +378,17 @@ public class VentanaTiemposLlegada extends JDialog {
      * Devuelve un arreglo con los tiempos de llegada: [ID, TiempoLlegada].
      */
     public Object[][] getTiempos() {
-        Object[][] tiempos = new Object[modelo.getRowCount()][2];
+        // Solo enviar cambios de procesos cuya llegada aun se puede editar.
+        // Asi el gestor no reescribe tiempos de procesos ya admitidos.
+        List<Object[]> editables = new ArrayList<>();
         for (int i = 0; i < modelo.getRowCount(); i++) {
+            String ubicacion = modelo.getValueAt(i, COL_UBICACION).toString();
+            if (!tlEditable(ubicacion)) continue;
             int id = Integer.parseInt(modelo.getValueAt(i, COL_ID).toString());
             int tiempo = Integer.parseInt(modelo.getValueAt(i, COL_LLEGADA).toString().trim());
-            tiempos[i][0] = id;
-            tiempos[i][1] = tiempo;
+            editables.add(new Object[]{id, tiempo});
         }
-        return tiempos;
+        return editables.toArray(new Object[0][2]);
     }
 
     /**
