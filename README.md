@@ -16,7 +16,7 @@
 
 ## Video de demostración
 
-**Pendiente:** falta
+[Ver el video de demostración en YouTube](https://youtu.be/sO0KOrkqHcE)
 
 ---
 
