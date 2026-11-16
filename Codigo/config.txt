@@ -1,14 +1,16 @@
 #Configuracion del Sistema - Proyecto 2 SO
-#Tue Nov 10 11:33:41 CST 2026
+#Sun Nov 15 21:38:58 CST 2026
 algoritmo_cpu=FCFS
 cpus=1
 disco=512
 estrategia_memoria=First Fit
 kernel=909
+lottery_semilla=0
 marcos_por_proceso=2
 max_archivos=15
 memoria=3030
 memoria_virtual=64
+mlfq_quantums=1,2,4
 pagina_tamano=4
 particion_tamano=16
 particiones=8,16,32,64

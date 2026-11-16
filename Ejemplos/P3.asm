@@ -1,0 +1,2 @@
+MOV CX, 1
+INT 20H

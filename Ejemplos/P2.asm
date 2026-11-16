@@ -1,0 +1,4 @@
+MOV BX, 1
+INC BX
+INC BX
+INT 20H
