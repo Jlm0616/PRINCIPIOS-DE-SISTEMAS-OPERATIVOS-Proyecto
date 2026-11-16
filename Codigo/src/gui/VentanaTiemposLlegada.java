@@ -50,11 +50,12 @@ public class VentanaTiemposLlegada extends JDialog {
 
     private static final int COL_UBICACION = 0;
     private static final int COL_ID        = 1;
-    private static final int COL_RAFAGA    = 2;
-    private static final int COL_LLEGADA   = 3;
-    private static final int COL_PRIORIDAD = 4;
-    private static final int COL_NUCLEO    = 5;
-    private static final int COL_BOLETOS   = 6;
+    private static final int COL_ARCHIVO   = 2;
+    private static final int COL_RAFAGA    = 3;
+    private static final int COL_LLEGADA   = 4;
+    private static final int COL_PRIORIDAD = 5;
+    private static final int COL_NUCLEO    = 6;
+    private static final int COL_BOLETOS   = 7;
 
     /** Texto del combo de nucleo para "cualquier nucleo libre". */
     private static final String CUALQUIERA = "Cualquiera";
@@ -80,6 +81,7 @@ public class VentanaTiemposLlegada extends JDialog {
     // Nucleo asignado y boletos de cada proceso (los da GestorProcesos)
     private java.util.function.IntUnaryOperator nucleoDe = id -> -1;
     private java.util.function.IntBinaryOperator boletosDe = (id, rafaga) -> rafaga;
+    private java.util.function.IntFunction<String> nombreArchivoDe = id -> "";
 
     /** Constructor legacy (sin pendientes). Mantiene compatibilidad. */
     public VentanaTiemposLlegada(Frame propietario,
@@ -94,7 +96,7 @@ public class VentanaTiemposLlegada extends JDialog {
                                  List<BCP> procesosEnCola,
                                  List<TrabajoNuevo> trabajosNuevos) {
         this(propietario, nucleos, procesosEnCola, trabajosNuevos,
-                new ArrayList<ProgramaPendiente>(), null, null);
+                new ArrayList<ProgramaPendiente>(), null, null, null);
     }
 
     /**
@@ -111,7 +113,7 @@ public class VentanaTiemposLlegada extends JDialog {
                                  java.util.function.IntUnaryOperator nucleoDe,
                                  java.util.function.IntBinaryOperator boletosDe) {
         this(propietario, nucleos, procesosEnCola, trabajosNuevos,
-                new ArrayList<ProgramaPendiente>(), nucleoDe, boletosDe);
+                new ArrayList<ProgramaPendiente>(), nucleoDe, boletosDe, null);
     }
 
     /** Constructor con programas pendientes de llegada, sin BCP, RAM ni swap. */
@@ -122,9 +124,22 @@ public class VentanaTiemposLlegada extends JDialog {
                                   List<ProgramaPendiente> programasPendientes,
                                   java.util.function.IntUnaryOperator nucleoDe,
                                   java.util.function.IntBinaryOperator boletosDe) {
+        this(propietario, nucleos, procesosEnCola, trabajosNuevos,
+                programasPendientes, nucleoDe, boletosDe, null);
+    }
+
+    public VentanaTiemposLlegada(Frame propietario,
+                                  List<Nucleo> nucleos,
+                                  List<BCP> procesosEnCola,
+                                  List<TrabajoNuevo> trabajosNuevos,
+                                  List<ProgramaPendiente> programasPendientes,
+                                  java.util.function.IntUnaryOperator nucleoDe,
+                                  java.util.function.IntBinaryOperator boletosDe,
+                                  java.util.function.IntFunction<String> nombreArchivoDe) {
         super(propietario, "Configurar Tiempos de Llegada, Prioridades y Nucleos", true);
         if (nucleoDe != null) this.nucleoDe = nucleoDe;
         if (boletosDe != null) this.boletosDe = boletosDe;
+        if (nombreArchivoDe != null) this.nombreArchivoDe = nombreArchivoDe;
         this.nucleos = nucleos;
         this.procesosEnCola = procesosEnCola;
         this.trabajosNuevos = (trabajosNuevos != null)
@@ -135,7 +150,7 @@ public class VentanaTiemposLlegada extends JDialog {
 
         construirInterfaz();
         pack();
-        setSize(900, 520);
+        setSize(1040, 520);
         setResizable(true);
         setLocationRelativeTo(propietario);
     }
@@ -160,7 +175,7 @@ public class VentanaTiemposLlegada extends JDialog {
 
         // Columnas: Ubicación | ID | Ráfaga | Tiempo Llegada | Prioridad | Núcleo | Boletos
         modelo = new DefaultTableModel(
-                new Object[]{"Ubicación", "ID", "Ráfaga", "Tiempo Llegada", "Prioridad",
+                new Object[]{"Ubicación", "ID", "Archivo ASM", "Ráfaga", "Tiempo Llegada", "Prioridad",
                              "Núcleo", "Boletos (Lottery)"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -185,6 +200,7 @@ public class VentanaTiemposLlegada extends JDialog {
                     modelo.addRow(new Object[]{
                         "CPU " + nucleo.getIdNucleo(),
                         bcp.getId(),
+                        nombreArchivoDe.apply(bcp.getId()),
                         bcp.getRafaga(),
                         bcp.getTiempoLlegada(),
                         bcp.getPrioridad(),
@@ -200,6 +216,7 @@ public class VentanaTiemposLlegada extends JDialog {
             modelo.addRow(new Object[]{
                 UBIC_RAM,
                 bcp.getId(),
+                nombreArchivoDe.apply(bcp.getId()),
                 bcp.getRafaga(),
                 bcp.getTiempoLlegada(),
                 bcp.getPrioridad(),
@@ -213,6 +230,7 @@ public class VentanaTiemposLlegada extends JDialog {
             modelo.addRow(new Object[]{
                 UBIC_NEW + t.getTiempoLlegada(),
                 t.getId(),
+                t.getNombre(),
                 t.getTamano(),
                 t.getTiempoLlegada(),
                 t.getPrioridad(),
@@ -226,6 +244,7 @@ public class VentanaTiemposLlegada extends JDialog {
             modelo.addRow(new Object[]{
                 UBIC_PENDIENTE + pendiente.getTiempoLlegada(),
                 pendiente.getId(),
+                pendiente.getNombreArchivo(),
                 pendiente.getInstrucciones().size(),
                 pendiente.getTiempoLlegada(),
                 pendiente.getPrioridad(),

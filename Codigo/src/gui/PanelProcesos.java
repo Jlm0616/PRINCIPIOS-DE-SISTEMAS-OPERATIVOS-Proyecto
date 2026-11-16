@@ -57,6 +57,7 @@ public class PanelProcesos extends JPanel {
     // aviso cuando el usuario los cambia en la ventana de llegadas.
     private java.util.function.IntUnaryOperator nucleoDe = id -> -1;
     private java.util.function.IntBinaryOperator boletosDe = (id, rafaga) -> rafaga;
+    private java.util.function.IntFunction<String> nombreArchivoDe = id -> "";
     private BiConsumer<Object[][], Object[][]> onNucleosYBoletosCambiados;
 
     private List<BCP> listaProcesosTemporal = new ArrayList<>();
@@ -234,7 +235,8 @@ public class PanelProcesos extends JPanel {
                 trabajosNuevosTemporal,
                 programasPendientesTemporal,
                 nucleoDe,
-                boletosDe
+                boletosDe,
+                nombreArchivoDe
         );
 
         ventana.setVisible(true);
@@ -346,6 +348,10 @@ public class PanelProcesos extends JPanel {
     /**
      * Indica de donde sale el nucleo asignado y los boletos de cada proceso.
      */
+    public void setFuenteNombresArchivo(java.util.function.IntFunction<String> fuente) {
+        if (fuente != null) this.nombreArchivoDe = fuente;
+    }
+
     public void setFuenteNucleosYBoletos(java.util.function.IntUnaryOperator nucleoDe,
                                          java.util.function.IntBinaryOperator boletosDe) {
         if (nucleoDe != null) this.nucleoDe = nucleoDe;

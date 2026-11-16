@@ -381,11 +381,22 @@ public class VentanaPrincipal extends JFrame {
         panelProcesos.setOnTiemposYPrioridadesCambiados((tiempos, prioridades) -> {
             gestor.actualizarTiemposLlegada(tiempos);
             gestor.actualizarPrioridades(prioridades);
+            panelPantalla.agregarMensaje(">> ===== TIEMPOS DE LLEGADA APLICADOS =====");
+            for (Object[] fila : tiempos) {
+                int id = (Integer) fila[0];
+                int llegada = (Integer) fila[1];
+                String nombre = gestor.getNombreArchivo(id);
+                panelPantalla.agregarMensaje(">> ID " + id + " ("
+                        + (nombre != null ? nombre : "archivo desconocido")
+                        + ") | Llegada: t=" + llegada);
+            }
+            panelPantalla.agregarMensaje(">> ======================================");
             refrescarTodo();
         });
 
         // Nucleo asignado y boletos de Lottery de cada proceso
         panelProcesos.setFuenteNucleosYBoletos(gestor::getNucleoAsignado, gestor::getBoletos);
+        panelProcesos.setFuenteNombresArchivo(gestor::getNombreArchivo);
         panelProcesos.setOnNucleosYBoletosCambiados((nucleos, boletos) -> {
             List<String> errores = new java.util.ArrayList<>();
             for (Object[] fila : nucleos) {
